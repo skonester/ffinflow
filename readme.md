@@ -3,6 +3,7 @@
 ffinflow is a minimalist media player built on the Electron framework. It leverages a decoupled architecture where Chromium handles the UI rendering and FFmpeg provides the underlying codec support and stream processing.
 
 ![ffinflow](images/main.png)
+![ffinflow](images/player.png)
 
 # Technical Architecture
 The application operates using a standard Electron multi-process model:
