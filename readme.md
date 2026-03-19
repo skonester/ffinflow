@@ -1,8 +1,9 @@
 
-![ffinflow](images/main.png)
+#ffinflow
 
-ffinflow
 ffinflow is a minimalist media player built on the Electron framework. It leverages a decoupled architecture where Chromium handles the UI rendering and FFmpeg provides the underlying codec support and stream processing.
+
+![ffinflow](images/main.png)
 
 Technical Architecture
 The application operates using a standard Electron multi-process model:
@@ -56,15 +57,15 @@ A schema-based JSON database used to persist user configurations, playlist state
 # Key commands for Electron/JSNode
 ------------------------------------------
 
-# Clean install of all manifest dependencies
+Clean install of all manifest dependencies
 npm install
 
-# Launch the application in a development environment
+Launch the application in a development environment
 npm start
 
-# Generate a production-ready Windows executable
+Generate a production-ready Windows executable
 npm run build
 
-# If a standard npm install fails to resolve the dependency tree, execute the following command to manually force-install the core stack:
+If a standard npm install fails to resolve the dependency tree, execute the following command to manually force-install the core stack:
 
 npm install electron@^28.3.3 ffmpeg-static@^5.2.0 ffprobe-static@^3.1.0 fluent-ffmpeg@^2.1.3 music-metadata@^7.14.0 srt-to-vtt@^1.1.3 subtitle@^4.2.1 webvtt-parser@^2.2.0 @electron/remote@^2.1.2 electron-log@^5.0.1 electron-store@^8.2.0 --save
