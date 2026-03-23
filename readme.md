@@ -1,7 +1,7 @@
 <div align="center">
   <img src="images/main.png" alt="ffinflow main interface" width="400" />
   <br/>
-  <img src="images/player.png" alt="ffinflow player interface" width="800" />
+  <img src="images/player.png" alt="ffinflow player interface" width="200" />
 </div>
 
 # ffinflow
