@@ -1267,3 +1267,104 @@ mediaPlayer.addEventListener("error", (e) => {
 window.addEventListener("beforeunload", () => {
   store.set("playlist", playlist);
 });
+
+// --- Start: Transcode Overlay Logic ---
+
+document.addEventListener("DOMContentLoaded", () => {
+    // 1. Dynamically create the overlay and its children
+    const transcodeOverlay = document.createElement('div');
+    transcodeOverlay.id = 'transcode-overlay';
+    // Apply styling so it behaves as an overlay without needing external CSS
+    Object.assign(transcodeOverlay.style, {
+        position: 'absolute',
+        top: '0',
+        left: '0',
+        width: '100%',
+        height: '100%',
+        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        zIndex: '9999',
+        display: 'none', // Hidden by default
+        flexDirection: 'column',
+        justifyContent: 'center',
+        alignItems: 'center',
+        color: 'white',
+        fontFamily: 'system-ui, -apple-system, sans-serif'
+    });
+
+    const transcodeStatusText = document.createElement('h2');
+    transcodeStatusText.id = 'transcode-status-text';
+    transcodeStatusText.style.marginBottom = '20px';
+    transcodeStatusText.innerText = 'Transcoding...';
+
+    const progressBarContainer = document.createElement('div');
+    Object.assign(progressBarContainer.style, {
+        width: '60%',
+        maxWidth: '400px',
+        height: '24px',
+        backgroundColor: '#333',
+        borderRadius: '12px',
+        overflow: 'hidden',
+        position: 'relative'
+    });
+
+    const transcodeProgressBar = document.createElement('div');
+    transcodeProgressBar.id = 'transcode-progress-bar';
+    Object.assign(transcodeProgressBar.style, {
+        width: '0%',
+        height: '100%',
+        backgroundColor: '#4CAF50',
+        transition: 'width 0.2s ease-in-out'
+    });
+
+    const transcodePercentage = document.createElement('span');
+    transcodePercentage.id = 'transcode-percentage';
+    Object.assign(transcodePercentage.style, {
+        position: 'absolute',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        fontSize: '12px',
+        fontWeight: 'bold',
+        textShadow: '0 1px 2px rgba(0,0,0,0.5)'
+    });
+    transcodePercentage.innerText = '0%';
+
+    // Assemble the DOM structure
+    progressBarContainer.appendChild(transcodeProgressBar);
+    progressBarContainer.appendChild(transcodePercentage);
+    
+    transcodeOverlay.appendChild(transcodeStatusText);
+    transcodeOverlay.appendChild(progressBarContainer);
+    
+    // Inject the overlay into the document body
+    document.body.appendChild(transcodeOverlay);
+
+    // 2. Set up the IPC listeners using the newly created elements
+    ipcRenderer.on('transcode-status', (event, status) => {
+        transcodeOverlay.style.display = 'flex';
+        transcodeStatusText.innerText = status;
+        
+        if (status.includes("Optimizing audio")) {
+            // Reset the bar for the actual transcode phase
+            transcodeProgressBar.style.width = '0%';
+            transcodePercentage.innerText = '0%';
+        }
+    });
+
+    ipcRenderer.on('transcode-progress', (event, percent) => {
+        transcodeProgressBar.style.width = `${percent}%`;
+        transcodePercentage.innerText = `${percent}%`;
+    });
+
+    ipcRenderer.on('transcode-complete', () => {
+        transcodeOverlay.style.display = 'none';
+        
+        // Reset back to zero for the next video
+        setTimeout(() => {
+            transcodeProgressBar.style.width = '0%';
+            transcodePercentage.innerText = '0%';
+        }, 500);
+    });
+});
+
+// --- End: Transcode Overlay Logic ---

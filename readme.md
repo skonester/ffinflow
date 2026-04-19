@@ -24,6 +24,7 @@ The application operates using a standard Electron multi-process model:
 
 ### Engine & Codec Support
 * **FFmpeg Integration:** Utilizes `ffmpeg-static` and `fluent-ffmpeg` to provide broad container compatibility, including `.mkv`, `.avi`, `.flv`, `.mov`, and `.wmv`.
+* **Dynamic Stream Probing & Transcoding:** Automatically probes media files upon opening to detect unsupported streams (e.g., incompatible audio formats) and seamlessly initiates real-time optimization, presenting users with an intuitive progress overlay while transcoding before playback starts.
 * **Hardware Acceleration:** Configured via Chromium switches (`force_high_performance_gpu`, `enable-accelerated-video-decode`) to offload decoding tasks from the CPU to the GPU.
 * **Atomic Metadata Extraction:** Non-blocking parsing of ID3, Vorbis, and MP4 tags, including embedded base64 cover art, via `music-metadata`.
 
@@ -56,3 +57,4 @@ The application operates using a standard Electron multi-process model:
 **Clean install of all manifest dependencies:**
 ```bash
 npm install
+npm run build
