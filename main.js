@@ -53,6 +53,63 @@ ffmpeg.setFfprobePath(FFPROBE_PATH);
 let mainWindow;
 let fileToOpen = null;
 
+function toFfprobePath(filePath) {
+  if (!filePath) return filePath;
+  if (filePath.startsWith("file:///")) {
+    try {
+      return decodeURIComponent(new URL(filePath).pathname).replace(/^\/([A-Za-z]:\/)/, "$1");
+    } catch (_) {
+      return filePath.replace(/^file:\/\/\//, "").replace(/\//g, "\\");
+    }
+  }
+  return filePath;
+}
+
+function cleanDisposition(disposition) {
+  if (!disposition) return {};
+  return Object.fromEntries(
+    Object.entries(disposition).filter(([, value]) => Boolean(value)),
+  );
+}
+
+function mapStreamForDisplay(stream) {
+  return {
+    index: stream.index,
+    type: stream.codec_type,
+    codec: stream.codec_name || "unknown",
+    codecLongName: stream.codec_long_name || "",
+    profile: stream.profile || "",
+    width: stream.width,
+    height: stream.height,
+    pixFmt: stream.pix_fmt,
+    sampleRate: stream.sample_rate,
+    channels: stream.channels,
+    channelLayout: stream.channel_layout,
+    language: stream.tags?.language,
+    title: stream.tags?.title,
+    bitRate: stream.bit_rate,
+    frameRate: stream.avg_frame_rate || stream.r_frame_rate,
+    disposition: cleanDisposition(stream.disposition),
+  };
+}
+
+function formatProbeInfo(filePath, metadata) {
+  const streams = metadata.streams || [];
+  return {
+    filePath,
+    format: {
+      name: metadata.format?.format_name || "",
+      longName: metadata.format?.format_long_name || "",
+      duration: metadata.format?.duration,
+      bitRate: metadata.format?.bit_rate,
+      size: metadata.format?.size,
+    },
+    video: streams.filter((stream) => stream.codec_type === "video").map(mapStreamForDisplay),
+    audio: streams.filter((stream) => stream.codec_type === "audio").map(mapStreamForDisplay),
+    subtitles: streams.filter((stream) => stream.codec_type === "subtitle").map(mapStreamForDisplay),
+  };
+}
+
 // ==============================================================================
 // AGENT: PRE-FLIGHT AUDIO INTERCEPTOR (SAME-DIRECTORY FAST MP4)
 // ==============================================================================
@@ -202,6 +259,7 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      devTools: !app.isPackaged,
       powerPreferences: "high-performance",
       webSecurity: false, // <-- Added to allow local file loading via file:///
       contentSecurityPolicy: `
@@ -223,6 +281,12 @@ function createWindow() {
       document.addEventListener('selectstart', (e) => e.preventDefault());
     `);
   });
+
+  if (app.isPackaged) {
+    mainWindow.webContents.on("devtools-opened", () => {
+      mainWindow.webContents.closeDevTools();
+    });
+  }
 
   remoteMain.enable(mainWindow.webContents);
 
@@ -437,6 +501,19 @@ ipcMain.handle("open-subtitle-file", async () => {
 
 ipcMain.handle("check-for-updates", () => {
   autoUpdater.checkForUpdatesAndNotify();
+});
+
+ipcMain.handle("probe-media-info", async (_, filePath) => {
+  const probePath = toFfprobePath(filePath);
+  return new Promise((resolve, reject) => {
+    ffmpeg.ffprobe(probePath, (err, metadata) => {
+      if (err) {
+        reject(new Error(`Unable to probe media info: ${err.message}`));
+        return;
+      }
+      resolve(formatProbeInfo(probePath, metadata));
+    });
+  });
 });
 
 ipcMain.on("toggle-menu-bar", (_, show) => {

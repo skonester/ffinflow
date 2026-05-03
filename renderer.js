@@ -87,6 +87,164 @@ const playlistPanel = document.getElementById("playlist-panel");
 const appContainer = document.querySelector(".app-container");
 const clearPlaylistBtn = document.getElementById("clear-playlist");
 const togglePlaylistButton = document.getElementById("toggle-playlist");
+let mediaInfoOverlay = null;
+let mediaInfoVisible = false;
+let currentMediaInfo = null;
+let mediaInfoRefreshTimer = null;
+
+function getStreamLabel(stream, fallback) {
+  const language = stream.language ? ` ${stream.language.toUpperCase()}` : "";
+  const title = stream.title ? ` - ${stream.title}` : "";
+  return `${fallback}${language}${title}`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatBitrate(bitRate) {
+  const value = Number(bitRate);
+  if (!value) return "unknown bitrate";
+  if (value >= 1000000) return `${(value / 1000000).toFixed(1)} Mbps`;
+  return `${Math.round(value / 1000)} kbps`;
+}
+
+function formatFrameRate(frameRate) {
+  if (!frameRate || frameRate === "0/0") return "";
+  const [numerator, denominator] = frameRate.split("/").map(Number);
+  if (!numerator || !denominator) return frameRate;
+  return `${(numerator / denominator).toFixed(2)} fps`;
+}
+
+function formatDurationSeconds(duration) {
+  const value = Number(duration);
+  return Number.isFinite(value) ? formatTime(value) : "unknown";
+}
+
+function ensureMediaInfoOverlay() {
+  if (mediaInfoOverlay) return mediaInfoOverlay;
+
+  mediaInfoOverlay = document.createElement("div");
+  mediaInfoOverlay.id = "media-info-osd";
+  mediaInfoOverlay.setAttribute("aria-live", "polite");
+  mediaInfoOverlay.classList.add("hidden");
+  document.getElementById("player-container").appendChild(mediaInfoOverlay);
+
+  return mediaInfoOverlay;
+}
+
+function renderMediaInfoOverlay() {
+  const overlay = ensureMediaInfoOverlay();
+
+  if (!mediaInfoVisible) {
+    overlay.classList.add("hidden");
+    return;
+  }
+
+  overlay.classList.remove("hidden");
+
+  if (!currentMediaInfo) {
+    overlay.innerHTML = `
+      <div class="media-info-title">Media Info</div>
+      <div class="media-info-row">No stream information loaded.</div>
+    `;
+    return;
+  }
+
+  const fileName = currentIndex !== -1 && playlist[currentIndex]
+    ? path.basename(playlist[currentIndex].path)
+    : "Current media";
+  const video = currentMediaInfo.video?.[0];
+  const audio = currentMediaInfo.audio || [];
+  const subtitles = currentMediaInfo.subtitles || [];
+  const playbackState = mediaPlayer.paused ? "Paused" : "Playing";
+  const currentTime = `${formatTime(mediaPlayer.currentTime)} / ${formatTime(mediaPlayer.duration || 0)}`;
+
+  const videoLine = video
+    ? [
+        video.codec,
+        video.profile,
+        video.width && video.height ? `${video.width}x${video.height}` : "",
+        formatFrameRate(video.frameRate),
+        video.pixFmt,
+        formatBitrate(video.bitRate),
+      ].filter(Boolean).join("  |  ")
+    : "No video stream";
+
+  const audioLines = audio.length
+    ? audio.map((stream, index) => {
+        const label = escapeHtml(getStreamLabel(stream, `A${index + 1}`));
+        const details = [
+          stream.codec,
+          stream.channelLayout || (stream.channels ? `${stream.channels} ch` : ""),
+          stream.sampleRate ? `${stream.sampleRate} Hz` : "",
+          formatBitrate(stream.bitRate),
+        ].filter(Boolean).join("  |  ");
+        const safeDetails = escapeHtml(details);
+        return `<div class="media-info-row"><span>${label}</span><strong>${safeDetails}</strong></div>`;
+      }).join("")
+    : `<div class="media-info-row"><span>Audio</span><strong>No audio stream</strong></div>`;
+
+  const subtitleLines = subtitles.length
+    ? subtitles.map((stream, index) => {
+        const label = escapeHtml(getStreamLabel(stream, `S${index + 1}`));
+        return `<div class="media-info-chip">${label}: ${escapeHtml(stream.codec)}</div>`;
+      }).join("")
+    : `<div class="media-info-chip muted">No subtitle streams</div>`;
+
+  overlay.innerHTML = `
+    <div class="media-info-title">Media Info</div>
+    <div class="media-info-name">${escapeHtml(fileName)}</div>
+    <div class="media-info-grid">
+      <span>State</span><strong>${escapeHtml(playbackState)}  |  ${escapeHtml(currentTime)}</strong>
+      <span>Container</span><strong>${escapeHtml(currentMediaInfo.format?.longName || currentMediaInfo.format?.name || "unknown")}</strong>
+      <span>Duration</span><strong>${escapeHtml(formatDurationSeconds(currentMediaInfo.format?.duration))}</strong>
+      <span>Bitrate</span><strong>${escapeHtml(formatBitrate(currentMediaInfo.format?.bitRate))}</strong>
+      <span>Video</span><strong>${escapeHtml(videoLine)}</strong>
+    </div>
+    <div class="media-info-section">${audioLines}</div>
+    <div class="media-info-subtitles">${subtitleLines}</div>
+  `;
+}
+
+async function loadMediaInfo(filePath) {
+  currentMediaInfo = null;
+  renderMediaInfoOverlay();
+
+  try {
+    currentMediaInfo = await ipcRenderer.invoke("probe-media-info", filePath);
+  } catch (error) {
+    currentMediaInfo = {
+      format: { longName: "Probe failed", duration: mediaPlayer.duration },
+      video: [],
+      audio: [],
+      subtitles: [],
+      error: error.message,
+    };
+    console.warn("Unable to load media info:", error);
+  }
+
+  renderMediaInfoOverlay();
+}
+
+function toggleMediaInfoOverlay() {
+  mediaInfoVisible = !mediaInfoVisible;
+  renderMediaInfoOverlay();
+
+  if (mediaInfoVisible && currentIndex !== -1 && playlist[currentIndex]) {
+    loadMediaInfo(playlist[currentIndex].path);
+    mediaInfoRefreshTimer = setInterval(renderMediaInfoOverlay, 1000);
+  } else if (mediaInfoRefreshTimer) {
+    clearInterval(mediaInfoRefreshTimer);
+    mediaInfoRefreshTimer = null;
+  }
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const speedToggle = document.getElementById("speed-toggle");
   const speedOptions = document.querySelector(".speed-options");
@@ -535,6 +693,10 @@ document.addEventListener("keydown", (e) => {
       e.preventDefault();
       toggleFullscreen();
       break;
+    case "KeyI":
+      e.preventDefault();
+      toggleMediaInfoOverlay();
+      break;
     case "KeyL":
       toggleLoop();
       break;
@@ -879,6 +1041,7 @@ async function playFile(filePath) {
 
   updatePlaylistUI();
   updateWindowTitle();
+  loadMediaInfo(filePath);
 
   const extension = path.extname(filePath).toLowerCase();
 
@@ -1169,6 +1332,7 @@ ipcRenderer.on("menu-play-pause", togglePlayPause);
 ipcRenderer.on("menu-previous", playPrevious);
 ipcRenderer.on("menu-next", playNext);
 ipcRenderer.on("menu-fullscreen", toggleFullscreen);
+ipcRenderer.on("toggle-media-info", toggleMediaInfoOverlay);
 
 ipcRenderer.on("toggle-remember-playback", (_, enabled) => {
   store.set("rememberPlayback", enabled);

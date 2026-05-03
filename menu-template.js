@@ -38,6 +38,12 @@ const createMenuTemplate = (mainWindow) => [
         label: 'View',
         submenu: [
             {
+                label: 'Toggle Media Info',
+                accelerator: 'I',
+                click: () => mainWindow.webContents.send('toggle-media-info')
+            },
+            { type: 'separator' },
+            {
                 label: 'Themes',
                 submenu: [
                     {
@@ -247,11 +253,11 @@ const createMenuTemplate = (mainWindow) => [
                     });
                 }
             },
-            {
+            ...(!app.isPackaged ? [{
                 label: 'Toggle Developer Tools',
                 accelerator: process.platform === 'darwin' ? 'Cmd+Alt+I' : 'Ctrl+Shift+I',
                 click: () => mainWindow.webContents.toggleDevTools()
-            }
+            }] : [])
         ]
     }
 ];

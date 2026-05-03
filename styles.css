@@ -55,6 +55,104 @@ body {
     outline: none;
 }
 
+#media-info-osd {
+    position: absolute;
+    top: 18px;
+    left: 18px;
+    width: min(680px, calc(100% - 36px));
+    max-height: calc(100% - 120px);
+    overflow: hidden;
+    z-index: 1200;
+    padding: 14px 16px;
+    background: rgba(8, 10, 12, 0.78);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.92);
+    font-family: Consolas, "SFMono-Regular", "Cascadia Mono", monospace;
+    font-size: 12px;
+    line-height: 1.45;
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.38);
+    backdrop-filter: blur(8px);
+    pointer-events: none;
+}
+
+#media-info-osd.hidden {
+    display: none;
+}
+
+.media-info-title {
+    color: var(--primary-color);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+
+.media-info-name {
+    margin-bottom: 10px;
+    color: #fff;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.media-info-grid {
+    display: grid;
+    grid-template-columns: 86px minmax(0, 1fr);
+    gap: 5px 12px;
+}
+
+.media-info-grid span,
+.media-info-row span {
+    color: rgba(255, 255, 255, 0.58);
+}
+
+.media-info-grid strong,
+.media-info-row strong {
+    min-width: 0;
+    color: rgba(255, 255, 255, 0.94);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.media-info-section {
+    margin-top: 10px;
+    display: grid;
+    gap: 5px;
+}
+
+.media-info-row {
+    display: grid;
+    grid-template-columns: 86px minmax(0, 1fr);
+    gap: 12px;
+}
+
+.media-info-subtitles {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.media-info-chip {
+    max-width: 100%;
+    padding: 3px 7px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.85);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.media-info-chip.muted {
+    color: rgba(255, 255, 255, 0.48);
+}
+
 /* Controls Container */
 #controls-overlay {
     position: absolute;
