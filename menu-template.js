@@ -1,4 +1,4 @@
-const { app, dialog } = require('electron');
+const { app, dialog, shell } = require('electron');
 const { getCurrentTheme } = require('./src/themes');
 const { RELEASE_NOTES } = require('./release-notes');
 const { autoUpdater } = require('electron-updater');
@@ -6,6 +6,7 @@ const Store = require('electron-store');
 const store = new Store();
 const { BrowserWindow } = require('electron');
 
+const PROJECT_URL = 'https://github.com/skonester/ffinflow';
 
 const createMenuTemplate = (mainWindow) => [
     {
@@ -113,6 +114,12 @@ const createMenuTemplate = (mainWindow) => [
                 click: () => mainWindow.webContents.send('menu-play-pause')
             },
             {
+                label: 'Stop',
+                accelerator: 'CmdOrCtrl+.',
+                click: () => mainWindow.webContents.send('menu-stop')
+            },
+            { type: 'separator' },
+            {
                 label: 'Previous',
                 accelerator: 'CmdOrCtrl+Left',
                 click: () => mainWindow.webContents.send('menu-previous')
@@ -121,6 +128,70 @@ const createMenuTemplate = (mainWindow) => [
                 label: 'Next',
                 accelerator: 'CmdOrCtrl+Right',
                 click: () => mainWindow.webContents.send('menu-next')
+            },
+            { type: 'separator' },
+            {
+                label: 'Rewind 10 Seconds',
+                accelerator: 'Left',
+                click: () => mainWindow.webContents.send('menu-seek-relative', -10)
+            },
+            {
+                label: 'Fast Forward 10 Seconds',
+                accelerator: 'Right',
+                click: () => mainWindow.webContents.send('menu-seek-relative', 10)
+            },
+            { type: 'separator' },
+            {
+                label: 'Shuffle',
+                accelerator: 'S',
+                click: () => mainWindow.webContents.send('menu-toggle-shuffle')
+            },
+            {
+                label: 'Repeat',
+                accelerator: 'L',
+                click: () => mainWindow.webContents.send('menu-toggle-repeat')
+            },
+            {
+                label: 'Play Speed',
+                submenu: [
+                    {
+                        label: '0.5x',
+                        click: () => mainWindow.webContents.send('menu-set-playback-speed', 0.5)
+                    },
+                    {
+                        label: '1.0x',
+                        accelerator: 'CmdOrCtrl+0',
+                        click: () => mainWindow.webContents.send('menu-set-playback-speed', 1)
+                    },
+                    {
+                        label: '1.25x',
+                        click: () => mainWindow.webContents.send('menu-set-playback-speed', 1.25)
+                    },
+                    {
+                        label: '1.5x',
+                        click: () => mainWindow.webContents.send('menu-set-playback-speed', 1.5)
+                    },
+                    {
+                        label: '2.0x',
+                        click: () => mainWindow.webContents.send('menu-set-playback-speed', 2)
+                    }
+                ]
+            },
+            { type: 'separator' },
+            {
+                label: 'Mute',
+                accelerator: 'M',
+                click: () => mainWindow.webContents.send('menu-toggle-mute')
+            },
+            {
+                label: 'Volume Up',
+                accelerator: 'Up',
+                click: () => mainWindow.webContents.send('menu-volume-relative', 0.1)
+            },
+            {
+                label: 'Volume Down',
+                accelerator: 'Down',
+                click: () => mainWindow.webContents.send('menu-volume-relative', -0.1)
             },
             { type: 'separator' },
             {
@@ -241,7 +312,26 @@ const createMenuTemplate = (mainWindow) => [
             },
             {
                 label: 'Check for Updates',
-                click: () => mainWindow.webContents.send('check-for-updates')
+                click: async () => {
+                    try {
+                        await autoUpdater.checkForUpdatesAndNotify();
+                    } catch (error) {
+                        console.error('Error checking for updates:', error);
+                        const result = await dialog.showMessageBox(mainWindow, {
+                            type: 'warning',
+                            title: 'Unable to Check for Updates',
+                            message: 'ffinflow could not check for updates automatically.',
+                            detail: `You can check releases manually at:\n${PROJECT_URL}`,
+                            buttons: ['Open GitHub', 'OK'],
+                            defaultId: 0,
+                            cancelId: 1
+                        });
+
+                        if (result.response === 0) {
+                            shell.openExternal(PROJECT_URL);
+                        }
+                    }
+                }
             },
             {
                 label: 'About',

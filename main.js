@@ -2,10 +2,13 @@ const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const fs = require("fs").promises;
 const path = require("path");
 const os = require("os");
+const crypto = require("crypto");
+const { fileURLToPath } = require("url");
 const Store = require("electron-store");
 const { autoUpdater } = require("electron-updater");
 const log = require("electron-log");
 const ffmpeg = require("fluent-ffmpeg");
+const { mediaInfoFactory } = require("mediainfo.js");
 const createMenuTemplate = require("./menu-template");
 
 const store = new Store();
@@ -52,17 +55,31 @@ ffmpeg.setFfprobePath(FFPROBE_PATH);
 
 let mainWindow;
 let fileToOpen = null;
+let execaLoader = null;
+
+async function getExeca() {
+  if (!execaLoader) {
+    execaLoader = import("execa").then((module) => module.execa);
+  }
+  return execaLoader;
+}
 
 function toFfprobePath(filePath) {
   if (!filePath) return filePath;
-  if (filePath.startsWith("file:///")) {
+  if (filePath.startsWith("file://")) {
     try {
-      return decodeURIComponent(new URL(filePath).pathname).replace(/^\/([A-Za-z]:\/)/, "$1");
+      return fileURLToPath(filePath);
     } catch (_) {
       return filePath.replace(/^file:\/\/\//, "").replace(/\//g, "\\");
     }
   }
   return filePath;
+}
+
+function normalizeMediaPath(filePath) {
+  if (!filePath) return filePath;
+  const unquotedPath = filePath.replace(/^"(.*)"$/, "$1");
+  return toFfprobePath(unquotedPath);
 }
 
 function cleanDisposition(disposition) {
@@ -111,84 +128,150 @@ function formatProbeInfo(filePath, metadata) {
 }
 
 // ==============================================================================
-// AGENT: PRE-FLIGHT AUDIO INTERCEPTOR (SAME-DIRECTORY FAST MP4)
+// AGENT: MEDIA COMPATIBILITY PRE-FLIGHT
 // ==============================================================================
 
-async function interceptAndFixAudio(filePath) {
-  return new Promise((resolve) => {
-    log.info(`Agent probing file: ${filePath}`);
-    
-    if (mainWindow) {
-      mainWindow.webContents.send("transcode-status", "Probing media file...");
+const BROWSER_NATIVE_EXTENSIONS = new Set([
+  ".mp4", ".m4v", ".webm", ".mp3", ".wav", ".ogg", ".aac", ".m4a", ".flac", ".opus",
+]);
+
+function getCompatibilityOutputPath(filePath, suffix = "prepared") {
+  const parsedPath = path.parse(filePath);
+  const hash = crypto
+    .createHash("sha1")
+    .update(filePath)
+    .update(String(Date.now()))
+    .digest("hex")
+    .slice(0, 10);
+  const fileName = `${parsedPath.name}_${suffix}_${hash}.mp4`;
+  return path.join(app.getPath("temp"), "ffinflow-media-cache", fileName);
+}
+
+async function analyzeWithMediaInfo(filePath) {
+  let fileHandle;
+  let mediaInfo;
+
+  try {
+    fileHandle = await fs.open(filePath, "r");
+    const stats = await fileHandle.stat();
+    mediaInfo = await mediaInfoFactory({ format: "object" });
+
+    const readChunk = async (size, offset) => {
+      const buffer = Buffer.alloc(size);
+      const { bytesRead } = await fileHandle.read(buffer, 0, size, offset);
+      return bytesRead === size ? buffer : buffer.subarray(0, bytesRead);
+    };
+
+    const result = await mediaInfo.analyzeData(() => stats.size, readChunk);
+    const tracks = result?.media?.track || [];
+    const general = tracks.find((track) => track["@type"] === "General") || {};
+    const video = tracks.find((track) => track["@type"] === "Video") || null;
+    const audio = tracks.find((track) => track["@type"] === "Audio") || null;
+
+    return {
+      generalFormat: general.Format || "",
+      videoFormat: video?.Format || "",
+      videoCodecId: video?.CodecID || "",
+      audioFormat: audio?.Format || "",
+      audioCodecId: audio?.CodecID || "",
+    };
+  } finally {
+    if (mediaInfo) mediaInfo.close();
+    if (fileHandle) await fileHandle.close();
+  }
+}
+
+function canFastRemuxToMp4(mediaInfo) {
+  const videoFormat = `${mediaInfo.videoFormat} ${mediaInfo.videoCodecId}`.toLowerCase();
+  const audioFormat = `${mediaInfo.audioFormat} ${mediaInfo.audioCodecId}`.toLowerCase();
+  const videoOk = !mediaInfo.videoFormat || /avc|h\.?264/.test(videoFormat);
+  const audioOk = !mediaInfo.audioFormat || /aac|mp3|mpeg audio/.test(audioFormat);
+  return videoOk && audioOk;
+}
+
+async function runFfmpeg(args, statusMessage) {
+  const execa = await getExeca();
+  if (mainWindow) {
+    mainWindow.webContents.send("transcode-status", statusMessage);
+  }
+
+  log.info(`Running FFmpeg: ${FFMPEG_PATH} ${args.join(" ")}`);
+  await execa(FFMPEG_PATH, args, { all: true });
+
+  if (mainWindow) {
+    mainWindow.webContents.send("transcode-progress", 100);
+  }
+}
+
+async function prepareForBrowserPlayback(filePath) {
+  filePath = normalizeMediaPath(filePath);
+  const extension = path.extname(filePath).toLowerCase();
+
+  if (BROWSER_NATIVE_EXTENSIONS.has(extension)) {
+    return filePath;
+  }
+
+  if (mainWindow) {
+    mainWindow.webContents.send("transcode-status", "Inspecting media compatibility...");
+  }
+
+  let mediaInfo = null;
+  try {
+    mediaInfo = await analyzeWithMediaInfo(filePath);
+    log.info("MediaInfo compatibility summary:", mediaInfo);
+  } catch (error) {
+    log.warn("MediaInfo analysis failed. Falling back to FFprobe/FFmpeg path:", error.message);
+  }
+
+  const shouldTryRemux = extension === ".flv" && mediaInfo && canFastRemuxToMp4(mediaInfo);
+  const outputPath = getCompatibilityOutputPath(filePath, shouldTryRemux ? "remuxed" : "converted");
+  await fs.mkdir(path.dirname(outputPath), { recursive: true });
+
+  const baseArgs = ["-y", "-hide_banner", "-i", filePath];
+
+  try {
+    if (shouldTryRemux) {
+      await runFfmpeg(
+        [
+          ...baseArgs,
+          "-map", "0:v:0?",
+          "-map", "0:a:0?",
+          "-c", "copy",
+          "-movflags", "+faststart",
+          outputPath,
+        ],
+        "Remuxing media for browser playback...",
+      );
+    } else {
+      await runFfmpeg(
+        [
+          ...baseArgs,
+          "-map", "0:v:0?",
+          "-map", "0:a:0?",
+          "-c:v", "libx264",
+          "-preset", "veryfast",
+          "-crf", "23",
+          "-pix_fmt", "yuv420p",
+          "-c:a", "aac",
+          "-b:a", "192k",
+          "-movflags", "+faststart",
+          outputPath,
+        ],
+        "Converting media for browser playback...",
+      );
     }
-    
-    ffmpeg.ffprobe(filePath, (err, metadata) => {
-      if (err) {
-        log.error("Agent Warning - Probe failed. Passing raw file:", err.message);
-        if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
-        return resolve(`file:///${filePath.replace(/\\/g, '/')}`);
-      }
 
-      const audioStream = metadata.streams && metadata.streams.find(s => s.codec_type === 'audio');
-      const safeCodecs = ['aac', 'opus', 'vorbis', 'flac', 'mp3', 'wav', 'pcm_s16le'];
+    return outputPath;
+  } catch (error) {
+    log.error("FFmpeg compatibility preparation failed:", error.message);
+    return filePath;
+  } finally {
+    if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
+  }
+}
 
-      // If it's already safe, return the formatted file path instantly
-      if (audioStream && safeCodecs.includes(audioStream.codec_name)) {
-        log.info(`${audioStream.codec_name.toUpperCase()} Detected. Audio is safe. Bypassing transcode...`);
-        if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
-        return resolve(`file:///${filePath.replace(/\\/g, '/')}`); 
-      } 
-      
-      log.info(`Unsupported audio (${audioStream ? audioStream.codec_name : 'unknown'}) detected. Engaging MAX-SPEED FLAC transcode...`);
-
-      if (mainWindow) {
-        mainWindow.webContents.send("transcode-status", "Optimizing audio format for player...");
-      }
-
-      // Format the output path to be in the SAME directory as the original file
-      const parsedPath = path.parse(filePath);
-      const outputPath = path.join(parsedPath.dir, `${parsedPath.name}_FIXED.mp4`); // Force MP4 container
-      
-      let command = ffmpeg(filePath);
-      
-      let options = [
-        '-c:v copy',             // Preserve HEVC losslessly
-        '-tag:v hvc1',           // Electron HEVC visibility
-        '-c:a flac',             // Fastest possible transcode
-        '-compression_level 0',  // Max CPU speed
-        '-threads 0',            // Multi-threading enabled
-        '-ac 6',                 // Preserve 5.1 surround
-        '-movflags +faststart'   // Puts MP4 MOOV atom at the front so it plays instantly
-      ];
-
-      command.outputOptions(options)
-        .on('start', (cmd) => log.info('Executing fast FLAC transcode:', cmd))
-        .on('progress', (progress) => {
-           if (progress.percent) {
-             const percent = Math.floor(progress.percent);
-             log.debug(`Transcoding Audio: ${percent}% done`);
-             if (mainWindow) {
-               mainWindow.webContents.send('transcode-progress', percent);
-             }
-           }
-        })
-        .on('error', (e) => {
-          log.error("Transcode failed:", e.message);
-          if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
-          resolve(`file:///${filePath.replace(/\\/g, '/')}`);
-        })
-        .on('end', () => {
-          log.info(`Processing complete. File saved to: ${outputPath}`);
-          
-          // IMPORTANT: Format the path for Chromium so it doesn't block it
-          const browserSafePath = `file:///${outputPath.replace(/\\/g, '/')}`;
-          
-          if (mainWindow) mainWindow.webContents.send('transcode-complete', true);
-          resolve(browserSafePath); // Pass the formatted URL to the frontend
-        })
-        .save(outputPath);
-    });
-  });
+async function interceptAndFixAudio(filePath) {
+  return prepareForBrowserPlayback(filePath);
 }
 
 // ==============================================================================
@@ -198,15 +281,12 @@ async function handleFileOpen(event, filePath) {
   if (event) event.preventDefault();
   if (!filePath) return;
 
-  filePath = filePath.replace(/^"(.*)"$/, "$1");
-
-  // Agent Intercept: Fix the file before the UI ever sees it
-  const finalizedPath = await interceptAndFixAudio(filePath);
+  filePath = normalizeMediaPath(filePath);
 
   if (mainWindow) {
-    mainWindow.webContents.send("file-opened", finalizedPath);
+    mainWindow.webContents.send("file-opened", filePath);
   } else {
-    fileToOpen = finalizedPath;
+    fileToOpen = filePath;
   }
 }
 
@@ -237,13 +317,11 @@ if (process.platform === "win32") {
 
     if (filePath) {
       // Async initialization for startup file
-      (async () => {
-        fileToOpen = await interceptAndFixAudio(filePath);
-        if (mainWindow) {
-          mainWindow.webContents.send("file-opened", fileToOpen);
-          fileToOpen = null;
-        }
-      })();
+      fileToOpen = normalizeMediaPath(filePath);
+      if (mainWindow) {
+        mainWindow.webContents.send("file-opened", fileToOpen);
+        fileToOpen = null;
+      }
     }
   }
 } else {
@@ -468,12 +546,8 @@ ipcMain.handle("open-files", async () => {
     ],
   });
   
-  // Agent: Intercept and fix the first selected file before passing it back
   if (result.filePaths.length > 0) {
-    const fixedPath = await interceptAndFixAudio(result.filePaths[0]);
-    // Map any additional files into safe file:/// format just to be consistent
-    const additionalPaths = result.filePaths.slice(1).map(p => `file:///${p.replace(/\\/g, '/')}`);
-    return [fixedPath, ...additionalPaths];
+    return result.filePaths.map(normalizeMediaPath);
   }
   
   return result.filePaths;
@@ -501,6 +575,10 @@ ipcMain.handle("open-subtitle-file", async () => {
 
 ipcMain.handle("check-for-updates", () => {
   autoUpdater.checkForUpdatesAndNotify();
+});
+
+ipcMain.handle("prepare-media-for-playback", async (_, filePath) => {
+  return prepareForBrowserPlayback(filePath);
 });
 
 ipcMain.handle("probe-media-info", async (_, filePath) => {

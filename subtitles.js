@@ -11,6 +11,7 @@ const mkdir = promisify(fs.mkdir);
 const { app } = require("@electron/remote");
 const ffmpeg = require("fluent-ffmpeg");
 const path = require("path");
+const { pathToFileURL } = require("url");
 
 function initializeFfmpeg() {
   try {
@@ -1081,7 +1082,7 @@ class SubtitlesManager {
       track.srclang = isEmbedded
         ? embedInfo.language
         : this.detectLanguage(filePath);
-      track.src = vttPath.startsWith("blob:") ? vttPath : `file://${vttPath}`;
+      track.src = vttPath.startsWith("blob:") ? vttPath : pathToFileURL(vttPath).href;
       track.dataset.originalPath = filePath;
       track.dataset.isEmbedded = isEmbedded;
       if (isEmbedded) {

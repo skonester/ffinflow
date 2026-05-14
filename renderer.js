@@ -1,6 +1,7 @@
 const { ipcRenderer } = require("electron");
 const { parseFile } = require("music-metadata");
 const path = require("path");
+const { fileURLToPath, pathToFileURL } = require("url");
 const Store = new require("electron-store");
 const store = new Store();
 
@@ -67,6 +68,9 @@ let isDragging = false;
 let animationFrame;
 let lastVolume = store.get("lastVolume", 0.5); // 50%
 let volumeChanged = false;
+let mediaErrorDialogOpen = false;
+let hardwareFallbackAttemptedPath = null;
+let preparedFallbackAttemptedPath = null;
 
 const rememberPlayback = store.get("rememberPlayback", true); // Default to true for existing users
 
@@ -91,6 +95,26 @@ let mediaInfoOverlay = null;
 let mediaInfoVisible = false;
 let currentMediaInfo = null;
 let mediaInfoRefreshTimer = null;
+
+function toFileSystemPath(filePath) {
+  if (!filePath) return filePath;
+  if (filePath.startsWith("file://")) {
+    try {
+      return fileURLToPath(filePath);
+    } catch (_) {
+      return filePath;
+    }
+  }
+  return filePath;
+}
+
+function toMediaUrl(filePath) {
+  if (!filePath) return filePath;
+  if (filePath.startsWith("file://") || filePath.startsWith("blob:") || filePath.startsWith("data:")) {
+    return filePath;
+  }
+  return pathToFileURL(filePath).href;
+}
 
 function getStreamLabel(stream, fallback) {
   const language = stream.language ? ` ${stream.language.toUpperCase()}` : "";
@@ -245,11 +269,148 @@ function toggleMediaInfoOverlay() {
   }
 }
 
+function setPlaybackSpeed(speed) {
+  const normalizedSpeed = Number(speed);
+  if (!Number.isFinite(normalizedSpeed) || normalizedSpeed <= 0) return;
+
+  mediaPlayer.playbackRate = normalizedSpeed;
+
+  const speedToggle = document.getElementById("speed-toggle");
+  if (speedToggle) {
+    speedToggle.textContent = `${normalizedSpeed}x`;
+  }
+
+  document.querySelectorAll(".speed-option").forEach((option) => {
+    option.classList.toggle(
+      "active",
+      Number(option.dataset.speed) === normalizedSpeed,
+    );
+  });
+}
+
+function seekRelative(seconds) {
+  if (!Number.isFinite(mediaPlayer.duration)) return;
+  mediaPlayer.currentTime = Math.max(
+    0,
+    Math.min(mediaPlayer.duration, mediaPlayer.currentTime + seconds),
+  );
+  updateTimeDisplay();
+}
+
+function setVolumeRelative(delta) {
+  const nextVolume = Math.max(0, Math.min(1, mediaPlayer.volume + delta));
+  mediaPlayer.volume = nextVolume;
+  volumeSlider.value = nextVolume * 100;
+  volumeSlider.style.setProperty("--volume-percent", volumeSlider.value);
+  lastVolume = nextVolume;
+  store.set("lastVolume", lastVolume);
+  updateVolumeIcon(nextVolume);
+}
+
+function stopPlayback() {
+  mediaPlayer.pause();
+  mediaPlayer.currentTime = 0;
+  updatePlayPauseIcon(true);
+  updateTimeDisplay();
+}
+
+function getActiveMediaPath() {
+  return currentIndex !== -1 && playlist[currentIndex]
+    ? playlist[currentIndex].path
+    : null;
+}
+
+function resetFailedMediaSource() {
+  mediaPlayer.pause();
+  mediaPlayer.innerHTML = "";
+  mediaPlayer.removeAttribute("src");
+  mediaPlayer.load();
+  updatePlayPauseIcon(true);
+}
+
+function showMediaPlaybackError(error) {
+  if (mediaErrorDialogOpen) return;
+
+  mediaErrorDialogOpen = true;
+  const message = error?.message || "This file could not be opened or is not supported by the current playback backend.";
+  alert(`Error playing media: ${message}`);
+  mediaErrorDialogOpen = false;
+}
+
+async function retryWithPreparedFallback(filePath, originalError) {
+  if (!filePath || preparedFallbackAttemptedPath === filePath) return false;
+
+  preparedFallbackAttemptedPath = filePath;
+
+  try {
+    const preparedPath = toFileSystemPath(
+      await ipcRenderer.invoke("prepare-media-for-playback", filePath),
+    );
+
+    if (!preparedPath || preparedPath === filePath) {
+      return false;
+    }
+
+    mediaPlayer.innerHTML = "";
+    mediaPlayer.removeAttribute("src");
+    mediaPlayer.load();
+
+    const extension = path.extname(preparedPath).toLowerCase();
+    const mediaUrl = toMediaUrl(preparedPath);
+
+    if (mimeTypes[extension]) {
+      const source = document.createElement("source");
+      source.src = mediaUrl;
+      source.type = mimeTypes[extension];
+      mediaPlayer.appendChild(source);
+    } else {
+      mediaPlayer.src = mediaUrl;
+    }
+
+    mediaPlayer.src = mediaUrl;
+    await mediaPlayer.play();
+    updatePlayPauseIcon(false);
+    return true;
+  } catch (error) {
+    console.warn("Prepared playback fallback failed:", error || originalError);
+    return false;
+  }
+}
+
+async function handleMediaPlaybackError(e) {
+  if (!mediaPlayer.hasAttribute("src")) return;
+
+  const currentPath = getActiveMediaPath();
+  const error = e.target?.error || mediaPlayer.error;
+  console.error("Media Player Error:", error || e);
+
+  if (
+    currentPath &&
+    hardwareAcceleration.isEnabled() &&
+    hardwareFallbackAttemptedPath !== currentPath &&
+    error &&
+    (
+      error.code === MediaError.MEDIA_ERR_DECODE ||
+      error.code === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED
+    )
+  ) {
+    hardwareFallbackAttemptedPath = currentPath;
+    hardwareAcceleration.handleError(error, currentPath, (retryPath) => playFile(retryPath));
+    return;
+  }
+
+  if (await retryWithPreparedFallback(currentPath, error)) {
+    return;
+  }
+
+  resetFailedMediaSource();
+  showMediaPlaybackError(error);
+}
+
 document.addEventListener("DOMContentLoaded", () => {
   const speedToggle = document.getElementById("speed-toggle");
   const speedOptions = document.querySelector(".speed-options");
   const speedButton = document.querySelector(".speed-button");
-  const video = document.getElementById("media-player");
 
   // Toggle dropdown
   speedToggle.addEventListener("click", (e) => {
@@ -263,18 +424,7 @@ document.addEventListener("DOMContentLoaded", () => {
     option.addEventListener("click", (e) => {
       e.stopPropagation();
       const speed = parseFloat(option.dataset.speed);
-
-      // Update video speed
-      if (video) video.playbackRate = speed;
-
-      // Update button text
-      speedToggle.textContent = `${speed}x`;
-
-      // Update active state
-      document
-        .querySelectorAll(".speed-option")
-        .forEach((opt) => opt.classList.remove("active"));
-      option.classList.add("active");
+      setPlaybackSpeed(speed);
 
       // Close dropdown
       speedButton.classList.remove("open");
@@ -378,7 +528,7 @@ function toggleHardwareAcceleration(enabled) {
     mediaPlayer.removeAttribute("src");
     mediaPlayer.load();
 
-    mediaPlayer.src = currentPath;
+    mediaPlayer.src = toMediaUrl(currentPath);
     mediaPlayer.currentTime = currentTime;
     if (wasPlaying) {
       mediaPlayer.play().catch(console.error);
@@ -389,7 +539,10 @@ function toggleHardwareAcceleration(enabled) {
 // Load saved playlist
 const savedPlaylist = store.get("playlist", []);
 if (savedPlaylist.length > 0) {
-  playlist = savedPlaylist;
+  playlist = savedPlaylist.map((item) => ({
+    ...item,
+    path: toFileSystemPath(item.path),
+  }));
   updatePlaylistUI();
 }
 
@@ -811,6 +964,8 @@ document.addEventListener("keydown", (e) => {
 });
 
 async function addToPlaylist(filePath) {
+  filePath = toFileSystemPath(filePath);
+
   // Get basic file info immediately
   const basicInfo = {
     path: filePath,
@@ -832,7 +987,7 @@ async function addToPlaylist(filePath) {
     const metadataLoaded = new Promise((resolve, reject) => {
       temp.onloadedmetadata = () => resolve(temp.duration);
       temp.onerror = reject;
-      temp.src = filePath;
+      temp.src = toMediaUrl(filePath);
     });
 
     const duration = await metadataLoaded;
@@ -1024,14 +1179,20 @@ function handleDrop(e) {
 }
 
 async function playFile(filePath) {
+  filePath = toFileSystemPath(filePath);
+
   if (!filePath) {
     console.warn("No file path provided to playFile");
     return;
   }
 
+  mediaErrorDialogOpen = false;
+  preparedFallbackAttemptedPath = null;
+
   const existingDialogs = document.querySelectorAll(".resume-dialog");
   existingDialogs.forEach((dialog) => dialog.remove());
 
+  mediaPlayer.innerHTML = "";
   mediaPlayer.removeAttribute("src");
   mediaPlayer.load();
 
@@ -1044,17 +1205,18 @@ async function playFile(filePath) {
   loadMediaInfo(filePath);
 
   const extension = path.extname(filePath).toLowerCase();
+  const mediaUrl = toMediaUrl(filePath);
 
   if (mimeTypes[extension]) {
     const source = document.createElement("source");
-    source.src = filePath;
+    source.src = mediaUrl;
     source.type = mimeTypes[extension];
     mediaPlayer.appendChild(source);
   } else {
-    mediaPlayer.src = filePath;
+    mediaPlayer.src = mediaUrl;
   }
 
-  mediaPlayer.src = filePath;
+  mediaPlayer.src = mediaUrl;
 
   // Detect and load subtitles for the new file
   subtitlesManager.detectSubtitles(filePath).catch((err) => {
@@ -1083,43 +1245,15 @@ async function playFile(filePath) {
     mediaPlayer.currentTime = 0;
   }
 
-  const playPromise = new Promise((resolve, reject) => {
-    const onPlaying = () => {
-      if (hardwareAcceleration) {
-        // Check if video is actually playing with hardware acceleration
-        if (mediaPlayer.videoTracks && mediaPlayer.videoTracks.length > 0) {
-          const videoTrack = mediaPlayer.videoTracks[0];
-          if (!videoTrack.selected) {
-            console.warn("Hardware decoding might not be active");
-          }
-        }
-      }
-      mediaPlayer.removeEventListener("playing", onPlaying);
-      resolve();
-    };
-
-    const onError = (error) => {
-      mediaPlayer.removeEventListener("playing", onPlaying);
-      reject(error);
-    };
-
-    mediaPlayer.addEventListener("playing", onPlaying, { once: true });
-    mediaPlayer.addEventListener("error", onError, { once: true });
-  });
-
   try {
     await mediaPlayer.play();
+    hardwareFallbackAttemptedPath = null;
     updatePlayPauseIcon(false);
   } catch (error) {
     console.error("Error playing file:", error);
-    if (error.name === "NotSupportedError" || error.name === "AbortError") {
-      console.warn("Playback error, attempting fallback...");
-      // Try alternative playback method
-      mediaPlayer.innerHTML = ""; // Clear any existing sources
-      mediaPlayer.src = filePath;
-      await mediaPlayer.play();
-    } else {
-      alert("Error playing file. The file may be invalid or unsupported.");
+    if (!mediaPlayer.error && error.name !== "AbortError") {
+      resetFailedMediaSource();
+      showMediaPlaybackError(error);
     }
   }
 }
@@ -1328,9 +1462,17 @@ ipcRenderer.on("change-theme", (_, themeName) => {
 });
 ipcRenderer.on("menu-open-files", openFiles);
 ipcRenderer.on("menu-open-folder", openFolder);
+ipcRenderer.on("menu-clear-playlist", clearPlaylist);
 ipcRenderer.on("menu-play-pause", togglePlayPause);
+ipcRenderer.on("menu-stop", stopPlayback);
 ipcRenderer.on("menu-previous", playPrevious);
 ipcRenderer.on("menu-next", playNext);
+ipcRenderer.on("menu-seek-relative", (_, seconds) => seekRelative(seconds));
+ipcRenderer.on("menu-toggle-shuffle", toggleShuffle);
+ipcRenderer.on("menu-toggle-repeat", toggleLoop);
+ipcRenderer.on("menu-set-playback-speed", (_, speed) => setPlaybackSpeed(speed));
+ipcRenderer.on("menu-toggle-mute", toggleMute);
+ipcRenderer.on("menu-volume-relative", (_, delta) => setVolumeRelative(delta));
 ipcRenderer.on("menu-fullscreen", toggleFullscreen);
 ipcRenderer.on("toggle-media-info", toggleMediaInfoOverlay);
 
@@ -1404,28 +1546,7 @@ document.addEventListener("drop", async (e) => {
 });
 
 // Error handling
-mediaPlayer.addEventListener("error", (e) => {
-  // Only show error if there's actually a source attribute
-  if (mediaPlayer.hasAttribute("src")) {
-    console.error("Media Player Error:", e);
-    alert(
-      `Error playing media: ${mediaPlayer.error?.message || "Unknown error"}`,
-    );
-
-    // Only try to play next if we have items in the playlist
-    if (playlist.length > 0) {
-      playNext();
-    }
-  }
-});
-
-mediaPlayer.addEventListener("error", (e) => {
-  hardwareAcceleration.handleError(
-    e.target.error,
-    currentIndex !== -1 ? playlist[currentIndex].path : null,
-    (path) => playFile(path),
-  );
-});
+mediaPlayer.addEventListener("error", handleMediaPlaybackError);
 
 // Save playlist before window closes
 window.addEventListener("beforeunload", () => {
