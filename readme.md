@@ -2,6 +2,20 @@
   <img src="images/main.png" alt="ffinflow main interface" width="220" />
   <br/>
   <img src="images/player.png" alt="ffinflow player interface" width="560" />
+
+  <br/><br/>
+
+  <a href="https://github.com/skonester/ffinflow/releases/latest"><img src="https://img.shields.io/github/v/release/skonester/ffinflow?label=Latest%20Release&style=flat-square" alt="Latest Release" /></a>
+  <a href="https://github.com/skonester/ffinflow/releases/latest"><img src="https://img.shields.io/github/downloads/skonester/ffinflow/total?label=Downloads&style=flat-square" alt="Total Downloads" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/skonester/ffinflow?label=License&style=flat-square" alt="License" /></a>
+  <a href="https://github.com/skonester/ffinflow/releases/latest"><img src="https://img.shields.io/badge/Platform-Windows-blue?style=flat-square" alt="Platform" /></a>
+
+  <br/><br/>
+
+  <a href="https://github.com/skonester/ffinflow/releases/latest">
+    <img src="https://img.shields.io/badge/Download-ffinflow%20for%20Windows-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Download ffinflow for Windows" />
+  </a>
+
 </div>
 
 # ffinflow
@@ -10,7 +24,7 @@ ffinflow is a desktop media player for Windows built on Electron with an integra
 
 The application is written in TypeScript, compiled to JavaScript, and packaged as a native Windows installer.
 
-> ffinflow is an independent project and is not affiliated with Microsoft or Windows Media Player.
+> ffinflow is an independent, open-source project. It is not affiliated with, endorsed by, or connected to Microsoft, Windows Media Player, or any Microsoft product. The interface design draws inspiration from the straightforward layout of classic desktop media players, but ffinflow is its own application with its own codebase and its own media backend.
 
 ---
 
@@ -20,9 +34,9 @@ Most modern media players fall into one of two categories: minimal single-purpos
 
 ffinflow occupies the middle ground. It is a local-file media player with a traditional desktop layout -- top menu bar, static buttons, a playlist sidebar, and a video surface -- combined with a real transcoding backend that can handle files the browser engine alone cannot play.
 
-The original Windows Media Player had a straightforward workflow: open a file, see the video, use obvious controls, manage a playlist. That model still works. But modern local media has grown more complex. MKV containers, HEVC/H.265 video, E-AC3 and DTS surround audio, embedded subtitle tracks in multiple languages, and uncommon container formats like FLV all require tooling that older players were never designed to provide.
+The design takes inspiration from the classic Windows Media Player Legacy experience: open a file, see the video, use obvious controls, manage a playlist. That workflow still works, and ffinflow preserves it. But modern local media has grown more complex. MKV containers, HEVC/H.265 video, E-AC3 and DTS surround audio, embedded subtitle tracks in multiple languages, and uncommon container formats like FLV all require tooling that legacy players were never designed to provide.
 
-ffinflow was built to solve that gap without introducing unnecessary complexity.
+ffinflow was built to solve that gap without introducing unnecessary complexity. It is not a clone or replacement for any existing player. It is an independent application that borrows a familiar control layout and pairs it with a modern media processing backend.
 
 ---
 
