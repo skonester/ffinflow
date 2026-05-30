@@ -2,6 +2,9 @@ const Store = require('electron-store');
 const store = new Store();
 
 class HardwareAcceleration {
+    mediaPlayer: HTMLVideoElement;
+    isHardwareAccelerated: boolean;
+
     constructor(mediaPlayer) {
         this.mediaPlayer = mediaPlayer;
         this.isHardwareAccelerated = store.get('hardwareAcceleration', true);
@@ -9,7 +12,7 @@ class HardwareAcceleration {
 
     checkSupport() {
         const canvas = document.createElement('canvas');
-        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+        const gl = (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')) as WebGLRenderingContext | null;
         
         if (!gl) {
             console.warn('WebGL not supported - hardware acceleration may be limited');
@@ -93,3 +96,4 @@ class HardwareAcceleration {
 }
 
 module.exports = HardwareAcceleration;
+export {};

@@ -1,11 +1,11 @@
-const Store = new require("electron-store");
+const Store = require("electron-store");
 const store = new Store();
 
-const volumeSlider = document.getElementById("volume-slider");
-const previousBtn = document.getElementById("previous");
-const nextBtn = document.getElementById("next");
-const playPauseBtn = document.getElementById("play-pause");
-const muteBtn = document.getElementById("mute");
+const volumeSlider = document.getElementById("volume-slider") as HTMLInputElement;
+const previousBtn = document.getElementById("previous") as HTMLButtonElement;
+const nextBtn = document.getElementById("next") as HTMLButtonElement;
+const playPauseBtn = document.getElementById("play-pause") as HTMLButtonElement;
+const muteBtn = document.getElementById("mute") as HTMLButtonElement;
 
 playPauseBtn.addEventListener("click", togglePlayPause);
 previousBtn.addEventListener("click", playPrevious);
@@ -75,18 +75,18 @@ function toggleMute() {
   if (mediaPlayer.volume > 0) {
     lastVolume = mediaPlayer.volume;
     mediaPlayer.volume = 0;
-    volumeSlider.value = 0;
+    volumeSlider.value = '0';
     muteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>`;
   } else {
     mediaPlayer.volume = lastVolume;
-    volumeSlider.value = lastVolume * 100;
+    volumeSlider.value = (lastVolume * 100).toString();
     store.set("lastVolume", lastVolume); // Save volume when unmuting
     muteBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>`;
   }
 }
 
 function updateVolume() {
-  const volume = volumeSlider.value / 100;
+  const volume = parseFloat(volumeSlider.value) / 100;
   mediaPlayer.volume = volume;
   lastVolume = volume;
 
@@ -99,7 +99,7 @@ function updateVolume() {
   // Update volume tooltip if it exists
   const tooltip = document.querySelector(".volume-tooltip");
   if (tooltip) {
-    tooltip.textContent = Math.round(volumeSlider.value) + "%";
+    tooltip.textContent = Math.round(parseFloat(volumeSlider.value)) + "%";
   }
 
   // Update volume icon based on level
@@ -122,3 +122,5 @@ module.exports = {
   playNext,
   togglePlayPause,
 };
+
+export {};

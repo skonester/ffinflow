@@ -30,11 +30,11 @@ function adjustForScreenSize() {
 
     // Ensure controls stay visible
     document.querySelectorAll(".control-button").forEach((button) => {
-      button.style.padding = "6px";
+      (button as HTMLElement).style.padding = "6px";
     });
 
     // Adjust volume slider
-    const volumeControl = document.querySelector(".volume-control");
+    const volumeControl = document.querySelector(".volume-control") as HTMLElement;
     if (volumeControl) {
       if (width < 800) {
         volumeControl.classList.add("vertical");
@@ -43,7 +43,7 @@ function adjustForScreenSize() {
         if (!volumeControl.querySelector(".volume-tooltip")) {
           const tooltip = document.createElement("div");
           tooltip.className = "volume-tooltip";
-          tooltip.textContent = Math.round(volumeSlider.value) + "%";
+          tooltip.textContent = Math.round(parseFloat(volumeSlider.value)) + "%";
           volumeControl.appendChild(tooltip);
         }
       } else {
@@ -58,10 +58,10 @@ function adjustForScreenSize() {
     playerSection.style.minWidth = `${MIN_WINDOW_WIDTH - 320}px`;
 
     document.querySelectorAll(".control-button").forEach((button) => {
-      button.style.padding = "8px";
+      (button as HTMLElement).style.padding = "8px";
     });
 
-    const volumeControl = document.querySelector(".volume-control");
+    const volumeControl = document.querySelector(".volume-control") as HTMLElement;
     if (volumeControl) {
       volumeControl.classList.remove("vertical");
       volumeControl.style.minWidth = "100px";
@@ -76,3 +76,5 @@ module.exports = {
   hideControls,
   showControls,
 };
+
+export {};

@@ -33,3 +33,4 @@ module.exports = {
     supportedFormats,
     mimeTypes
 };
+export {};

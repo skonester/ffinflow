@@ -2,7 +2,7 @@ const { ipcRenderer } = require("electron");
 const fs = require("fs").promises;
 const srt2vtt = require("srt-to-vtt");
 const { createReadStream } = require("fs");
-const Store = new require("electron-store");
+const Store = require("electron-store");
 const os = require("os");
 const { promisify } = require("util");
 const writeFile = promisify(fs.writeFile);
@@ -12,6 +12,9 @@ const { app } = require("@electron/remote");
 const ffmpeg = require("fluent-ffmpeg");
 const path = require("path");
 const { pathToFileURL } = require("url");
+
+let ffmpegBinary: string;
+let ffprobeBinary: string;
 
 function initializeFfmpeg() {
   try {
@@ -54,6 +57,32 @@ function initializeFfmpeg() {
 }
 
 class SubtitlesManager {
+  debug: boolean;
+  store: any;
+  subtitleDelay: number;
+  lastSubtitleDelay: number;
+  mediaPlayer: HTMLVideoElement;
+  currentSubtitles: any[];
+  embeddedSubtitles: any[];
+  activeTrack: TextTrack | null;
+  subtitleCache: Map<string, string>;
+  tempDir: string;
+  ffmpegAvailable: boolean;
+  autoLoadEnabled: boolean;
+  defaultLanguage: string;
+  subtitleHistory: any;
+  lastSelectedLanguage: string | null;
+  globalSubtitleEnabled: boolean;
+  extractedEmbeddedSubtitles: Map<string, string>;
+  embeddedSubtitleHistory: any;
+  extractedSubtitlesCache: any;
+  lastSuccessfulSubtitle: string | null;
+  lastSuccessfulLanguage: string | null;
+  supportedFormats: string[];
+  languageCodes: Record<string, string>;
+  lastUsedLanguage: string | null;
+  currentVideoPath: string;
+
   constructor(mediaPlayer) {
     this.debug = true; // Set to true to enable detailed logging
 
@@ -586,7 +615,7 @@ class SubtitlesManager {
     }
   }
 
-  async detectEmbeddedSubtitles(videoPath) {
+  async detectEmbeddedSubtitles(videoPath: string): Promise<any[]> {
     if (!this.ffmpegAvailable) {
       return [];
     }
@@ -727,7 +756,7 @@ class SubtitlesManager {
     document
       .getElementById("auto-load-subtitles")
       ?.addEventListener("change", (e) => {
-        this.autoLoadEnabled = e.target.checked;
+        this.autoLoadEnabled = (e.target as HTMLInputElement).checked;
         store.set("autoLoadSubtitles", this.autoLoadEnabled);
       });
 
@@ -777,7 +806,7 @@ class SubtitlesManager {
 
     // Close menu when clicking outside
     document.addEventListener("click", (e) => {
-      if (!subtitleMenu.contains(e.target) && e.target !== subtitleButton) {
+      if (!subtitleMenu.contains(e.target as Node) && e.target !== subtitleButton) {
         subtitleMenu.style.display = "none";
         subtitleButton.classList.remove("active");
       }
@@ -819,7 +848,7 @@ class SubtitlesManager {
 
   disableAllTextTracks() {
     Array.from(this.mediaPlayer.textTracks).forEach((track) => {
-      track.mode = "disabled";
+      track.mode = "disabled" as TextTrackMode;
     });
   }
 
@@ -1063,9 +1092,10 @@ class SubtitlesManager {
         this.mediaPlayer.getElementsByTagName("track"),
       );
       existingTracks.forEach((track) => {
-        if (track.dataset.originalPath === filePath) {
-          track.track.mode = "disabled";
-          track.remove();
+        const trackEl = track as HTMLTrackElement;
+        if (trackEl.dataset.originalPath === filePath) {
+          trackEl.track.mode = "disabled" as TextTrackMode;
+          trackEl.remove();
         }
       });
 
@@ -1084,11 +1114,11 @@ class SubtitlesManager {
         : this.detectLanguage(filePath);
       track.src = vttPath.startsWith("blob:") ? vttPath : pathToFileURL(vttPath).href;
       track.dataset.originalPath = filePath;
-      track.dataset.isEmbedded = isEmbedded;
+      track.dataset.isEmbedded = isEmbedded.toString();
       if (isEmbedded) {
         track.dataset.streamIndex = embedInfo.index;
       }
-      track.mode = "disabled"; // Start with disabled mode
+      track.track.mode = "disabled" as TextTrackMode; // Start with disabled mode
 
       this.mediaPlayer.appendChild(track);
       if (!this.currentSubtitles.includes(filePath)) {
@@ -1448,7 +1478,7 @@ class SubtitlesManager {
     trackList.querySelectorAll(".subtitle-item").forEach((item) => {
       item.addEventListener("click", async (e) => {
         e.stopPropagation();
-        const path = item.dataset.path;
+        const path = (item as HTMLElement).dataset.path;
         await this.setActiveSubtitle(path || null);
       });
     });
@@ -1502,7 +1532,7 @@ class SubtitlesManager {
   updateSubtitleStyle() {
     const styleSheet = document.styleSheets[0];
     let cueRule = Array.from(styleSheet.cssRules).find(
-      (rule) => rule.selectorText === "::cue",
+      (rule) => (rule as CSSStyleRule).selectorText === "::cue",
     );
 
     if (!cueRule) {
@@ -1511,10 +1541,11 @@ class SubtitlesManager {
         styleSheet.cssRules.length,
       );
     } else {
-      cueRule.style.whiteSpace = "pre-line";
+      (cueRule as CSSStyleRule).style.whiteSpace = "pre-line";
     }
   }
 }
 
 // Export the class
 module.exports = SubtitlesManager;
+export {};

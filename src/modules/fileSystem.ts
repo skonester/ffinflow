@@ -84,3 +84,4 @@ async function openFiles() {
 
 
 module.exports = { getMediaFilesFromFolder, openFiles, openFolder };
+export {};

@@ -46,7 +46,7 @@ autoUpdater.logger = log;
 // ==============================================================================
 const FFMPEG_PATH = app.isPackaged 
     ? path.join(process.resourcesPath, 'ffmpeg-binaries', 'ffmpeg.exe') 
-    : path.join(__dirname, 'ffmpeg-binaries', 'ffmpeg.exe');
+    : path.join(__dirname, '..', 'ffmpeg-binaries', 'ffmpeg.exe');
 
 const FFPROBE_PATH = FFMPEG_PATH.replace('ffmpeg.exe', 'ffprobe.exe');
 
@@ -203,75 +203,153 @@ async function runFfmpeg(args, statusMessage) {
   }
 }
 
-async function prepareForBrowserPlayback(filePath) {
-  filePath = normalizeMediaPath(filePath);
-  const extension = path.extname(filePath).toLowerCase();
-
-  if (BROWSER_NATIVE_EXTENSIONS.has(extension)) {
-    return filePath;
-  }
-
-  if (mainWindow) {
-    mainWindow.webContents.send("transcode-status", "Inspecting media compatibility...");
-  }
-
-  let mediaInfo = null;
-  try {
-    mediaInfo = await analyzeWithMediaInfo(filePath);
-    log.info("MediaInfo compatibility summary:", mediaInfo);
-  } catch (error) {
-    log.warn("MediaInfo analysis failed. Falling back to FFprobe/FFmpeg path:", error.message);
-  }
-
-  const shouldTryRemux = extension === ".flv" && mediaInfo && canFastRemuxToMp4(mediaInfo);
-  const outputPath = getCompatibilityOutputPath(filePath, shouldTryRemux ? "remuxed" : "converted");
-  await fs.mkdir(path.dirname(outputPath), { recursive: true });
-
-  const baseArgs = ["-y", "-hide_banner", "-i", filePath];
-
-  try {
-    if (shouldTryRemux) {
-      await runFfmpeg(
-        [
-          ...baseArgs,
-          "-map", "0:v:0?",
-          "-map", "0:a:0?",
-          "-c", "copy",
-          "-movflags", "+faststart",
-          outputPath,
-        ],
-        "Remuxing media for browser playback...",
-      );
-    } else {
-      await runFfmpeg(
-        [
-          ...baseArgs,
-          "-map", "0:v:0?",
-          "-map", "0:a:0?",
-          "-c:v", "libx264",
-          "-preset", "veryfast",
-          "-crf", "23",
-          "-pix_fmt", "yuv420p",
-          "-c:a", "aac",
-          "-b:a", "192k",
-          "-movflags", "+faststart",
-          outputPath,
-        ],
-        "Converting media for browser playback...",
-      );
+async function interceptAndFixAudio(filePath: string): Promise<string> {
+  return new Promise<string>((resolve) => {
+    log.info(`Agent probing file: ${filePath}`);
+    
+    if (mainWindow) {
+      mainWindow.webContents.send("transcode-status", "Probing media file...");
     }
+    
+    ffmpeg.ffprobe(filePath, (err: any, metadata: any) => {
+      if (err) {
+        log.error("Agent Warning - Probe failed. Passing raw file:", err.message);
+        if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
+        return resolve(`file:///${filePath.replace(/\\/g, '/')}`);
+      }
 
-    return outputPath;
-  } catch (error) {
-    log.error("FFmpeg compatibility preparation failed:", error.message);
-    return filePath;
-  } finally {
-    if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
-  }
-}
+      const audioStream = metadata.streams && metadata.streams.find((s: any) => s.codec_type === 'audio');
+      const videoStream = metadata.streams && metadata.streams.find((s: any) => s.codec_type === 'video');
 
-async function interceptAndFixAudio(filePath) {
-  return prepareForBrowserPlayback(filePath);
+      const safeAudioCodecs = ['aac', 'opus', 'vorbis', 'flac', 'mp3', 'wav', 'pcm_s16le'];
+      const safeVideoCodecs = ['h264', 'vp8', 'vp9', 'av1', 'hevc'];
+
+      const isAudioSafe = !audioStream || safeAudioCodecs.includes(audioStream.codec_name);
+      const isVideoSafe = !videoStream || safeVideoCodecs.includes(videoStream.codec_name);
+
+      const extension = path.extname(filePath).toLowerCase();
+      const isNativeContainer = BROWSER_NATIVE_EXTENSIONS.has(extension);
+
+      // Case 3: Fully safe & browser-native container. Play directly!
+      if (isAudioSafe && isVideoSafe && isNativeContainer) {
+        log.info(`Media is natively compatible. Bypassing transcode...`);
+        if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
+        return resolve(`file:///${filePath.replace(/\\/g, '/')}`); 
+      }
+
+      // Check if we need same-directory FLAC transcode (Case 1) or temp-directory remux/conversion (Case 2)
+      let outputPath = "";
+      let tempOutputPath = "";
+      let options: string[] = [];
+      let isRemux = false;
+
+      if (!isAudioSafe) {
+        // Case 1: Audio is unsupported. We do fast FLAC transcode to same directory.
+        log.info(`Unsupported audio (${audioStream.codec_name}) detected. Engaging MAX-SPEED FLAC transcode...`);
+        if (mainWindow) {
+          mainWindow.webContents.send("transcode-status", "Optimizing audio format for player...");
+        }
+        const parsedPath = path.parse(filePath);
+        outputPath = path.join(parsedPath.dir, `${parsedPath.name}_FIXED.mp4`);
+        tempOutputPath = outputPath + ".tmp";
+        
+        options = [
+          '-c:v copy',             // Preserve HEVC/H264 losslessly
+          '-tag:v hvc1',           // Electron HEVC visibility
+          '-c:a flac',             // Fastest possible transcode
+          '-compression_level 0',  // Max CPU speed
+          '-threads 0',            // Multi-threading enabled
+          '-ac 6',                 // Preserve 5.1 surround
+          '-movflags +faststart'   // Puts MP4 MOOV atom at the front
+        ];
+      } else {
+        // Case 2: Audio is safe, but container or video codec is browser-hostile.
+        // We transcode/remux to temp directory.
+        isRemux = isVideoSafe; // if video is also safe, we can just remux (copy streams)
+        const suffix = isRemux ? "remuxed" : "converted";
+        outputPath = getCompatibilityOutputPath(filePath, suffix);
+        tempOutputPath = outputPath + ".tmp";
+
+        if (mainWindow) {
+          mainWindow.webContents.send("transcode-status", isRemux ? "Remuxing media for player..." : "Converting media format...");
+        }
+
+        if (isRemux) {
+          log.info(`Browser-hostile container (${extension}) but safe streams detected. Remuxing to MP4...`);
+          options = [
+            '-c:v copy',
+            '-c:a copy',
+            '-movflags +faststart'
+          ];
+        } else {
+          log.info(`Unsupported video codec (${videoStream?.codec_name || 'unknown'}) detected. Converting to H.264/AAC MP4...`);
+          options = [
+            '-c:v libx264',
+            '-preset veryfast',
+            '-crf 23',
+            '-pix_fmt yuv420p',
+            '-c:a aac',
+            '-b:a 192k',
+            '-movflags +faststart'
+          ];
+        }
+      }
+
+      const browserSafeOutputPath = `file:///${outputPath.replace(/\\/g, '/')}`;
+
+      // Check if output file already exists
+      fs.stat(outputPath)
+        .then((stat: any) => {
+          if (stat.size > 0) {
+            log.info("Output file already exists, using cached copy:", outputPath);
+            if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
+            return resolve(browserSafeOutputPath);
+          }
+        })
+        .catch(async () => {
+          // Ensure temp directory exists if we are writing to temp cache
+          if (outputPath.includes("ffinflow-media-cache")) {
+            await fs.mkdir(path.dirname(outputPath), { recursive: true }).catch(() => {});
+          }
+
+          // File does not exist, proceed with transcoding
+          const command = ffmpeg(filePath);
+          
+          command.format('mp4').outputOptions(options)
+            .on('start', (cmd: string) => log.info('Executing FFmpeg command:', cmd))
+            .on('progress', (progress: any) => {
+               if (progress.percent) {
+                 const percent = Math.floor(progress.percent);
+                 log.debug(`FFmpeg Progress: ${percent}% done`);
+                 if (mainWindow) {
+                   mainWindow.webContents.send('transcode-progress', percent);
+                 }
+               }
+            })
+            .on('error', (e: any) => {
+              log.error("FFmpeg execution failed:", e.message);
+              // Clean up the temp file
+              fs.unlink(tempOutputPath).catch(() => {});
+              if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
+              resolve(`file:///${filePath.replace(/\\/g, '/')}`);
+            })
+            .on('end', () => {
+              // Rename the temp file to the final output file upon successful completion
+              fs.rename(tempOutputPath, outputPath)
+                .then(() => {
+                  log.info(`Processing complete. File saved to: ${outputPath}`);
+                  if (mainWindow) mainWindow.webContents.send('transcode-complete', true);
+                  resolve(browserSafeOutputPath);
+                })
+                .catch((renameErr: any) => {
+                  log.error("Rename failed:", renameErr.message);
+                  resolve(`file:///${filePath.replace(/\\/g, '/')}`);
+                });
+            })
+            .save(tempOutputPath); // Write to the temp file first!
+        });
+    });
+  });
 }
 
 // ==============================================================================
@@ -578,7 +656,7 @@ ipcMain.handle("check-for-updates", () => {
 });
 
 ipcMain.handle("prepare-media-for-playback", async (_, filePath) => {
-  return prepareForBrowserPlayback(filePath);
+  return interceptAndFixAudio(filePath);
 });
 
 ipcMain.handle("probe-media-info", async (_, filePath) => {
@@ -600,3 +678,4 @@ ipcMain.on("toggle-menu-bar", (_, show) => {
     mainWindow.setAutoHideMenuBar(!show);
   }
 });
+export {};

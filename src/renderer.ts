@@ -2,11 +2,11 @@ const { ipcRenderer } = require("electron");
 const { parseFile } = require("music-metadata");
 const path = require("path");
 const { fileURLToPath, pathToFileURL } = require("url");
-const Store = new require("electron-store");
+const Store = require("electron-store");
 const store = new Store();
 
-const { applyTheme, getCurrentTheme } = require("./src/themes");
-const { formatTime, debounce } = require("./src/utils");
+const { applyTheme, getCurrentTheme } = require("./modules/themes");
+const { formatTime, debounce } = require("./modules/utils");
 const {
   INACTIVITY_TIMEOUT,
   MINIMUM_POSITION,
@@ -16,8 +16,8 @@ const {
   DOUBLE_CLICK_DELAY,
   supportedFormats,
   mimeTypes,
-} = require("./src/constants");
-const { openFiles, openFolder } = require("./src/fileSystem");
+} = require("./modules/constants");
+const { openFiles, openFolder } = require("./modules/fileSystem");
 const {
   volumeSlider,
   previousBtn,
@@ -29,26 +29,26 @@ const {
   playPrevious,
   playNext,
   togglePlayPause,
-} = require("./src/mediaControl");
+} = require("./modules/mediaControl");
 const {
   adjustForScreenSize,
   updateWindowTitle,
   hideControls,
   showControls,
-} = require("./src/playerUI");
+} = require("./modules/playerUI");
 const {
   isFullscreenSupported,
   handleFullscreenChange,
   toggleFullscreen,
-} = require("./src/fullscreenManager");
+} = require("./modules/fullscreenManager");
 const {
   showResumeDialog,
   removeLastPosition,
   getLastPosition,
   saveLastPosition,
-} = require("./src/playbackPosition");
+} = require("./modules/playbackPosition");
 
-const HardwareAcceleration = require("./src/hardwareAccelerations");
+const HardwareAcceleration = require("./modules/hardwareAccelerations");
 const SubtitlesManager = require("./subtitles");
 
 let playlist = [];
@@ -79,22 +79,99 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // DOM Elements
-const mediaPlayer = document.getElementById("media-player");
-const timeSlider = document.getElementById("time-slider");
-const timeDisplay = document.getElementById("time-display");
-const fullscreenBtn = document.getElementById("fullscreen");
-const shuffleBtn = document.getElementById("shuffle");
-const loopBtn = document.getElementById("loop");
-const playlistElement = document.getElementById("playlist");
-const playerSection = document.querySelector(".player-section");
-const playlistPanel = document.getElementById("playlist-panel");
-const appContainer = document.querySelector(".app-container");
-const clearPlaylistBtn = document.getElementById("clear-playlist");
-const togglePlaylistButton = document.getElementById("toggle-playlist");
+const mediaPlayer = document.getElementById("media-player") as HTMLVideoElement;
+const timeSlider = document.getElementById("time-slider") as HTMLInputElement;
+const timeDisplay = document.getElementById("time-display") as HTMLSpanElement;
+const fullscreenBtn = document.getElementById("fullscreen") as HTMLButtonElement;
+const shuffleBtn = document.getElementById("shuffle") as HTMLButtonElement;
+const loopBtn = document.getElementById("loop") as HTMLButtonElement;
+const playlistElement = document.getElementById("playlist") as HTMLElement;
+const playerSection = document.querySelector(".player-section") as HTMLElement;
+const playlistPanel = document.getElementById("playlist-panel") as HTMLElement;
+const appContainer = document.querySelector(".app-container") as HTMLElement;
+const clearPlaylistBtn = document.getElementById("clear-playlist") as HTMLButtonElement;
+const togglePlaylistButton = document.getElementById("toggle-playlist") as HTMLButtonElement;
 let mediaInfoOverlay = null;
 let mediaInfoVisible = false;
 let currentMediaInfo = null;
 let mediaInfoRefreshTimer = null;
+
+// ==============================================================================
+// GLOBAL BINDINGS FOR COMMONJS COMPATIBILITY
+// ==============================================================================
+(window as any).mediaPlayer = mediaPlayer;
+(window as any).timeSlider = timeSlider;
+(window as any).timeDisplay = timeDisplay;
+(window as any).fullscreenBtn = fullscreenBtn;
+(window as any).shuffleBtn = shuffleBtn;
+(window as any).loopBtn = loopBtn;
+(window as any).playlistElement = playlistElement;
+(window as any).playerSection = playerSection;
+(window as any).playlistPanel = playlistPanel;
+(window as any).appContainer = appContainer;
+(window as any).clearPlaylistBtn = clearPlaylistBtn;
+(window as any).togglePlaylistButton = togglePlaylistButton;
+(window as any).ipcRenderer = ipcRenderer;
+(window as any).store = store;
+(window as any).applyTheme = applyTheme;
+(window as any).getCurrentTheme = getCurrentTheme;
+(window as any).formatTime = formatTime;
+(window as any).debounce = debounce;
+(window as any).INACTIVITY_TIMEOUT = INACTIVITY_TIMEOUT;
+(window as any).MINIMUM_POSITION = MINIMUM_POSITION;
+(window as any).SEEK_UPDATE_INTERVAL = SEEK_UPDATE_INTERVAL;
+(window as any).MIN_WINDOW_WIDTH = MIN_WINDOW_WIDTH;
+(window as any).MIN_WINDOW_HEIGHT = MIN_WINDOW_HEIGHT;
+(window as any).DOUBLE_CLICK_DELAY = DOUBLE_CLICK_DELAY;
+(window as any).supportedFormats = supportedFormats;
+(window as any).mimeTypes = mimeTypes;
+(window as any).openFiles = openFiles;
+(window as any).openFolder = openFolder;
+(window as any).adjustForScreenSize = adjustForScreenSize;
+(window as any).updateWindowTitle = updateWindowTitle;
+(window as any).hideControls = hideControls;
+(window as any).showControls = showControls;
+(window as any).isFullscreenSupported = isFullscreenSupported;
+(window as any).handleFullscreenChange = handleFullscreenChange;
+(window as any).toggleFullscreen = toggleFullscreen;
+(window as any).showResumeDialog = showResumeDialog;
+(window as any).removeLastPosition = removeLastPosition;
+(window as any).getLastPosition = getLastPosition;
+(window as any).saveLastPosition = saveLastPosition;
+(window as any).HardwareAcceleration = HardwareAcceleration;
+(window as any).SubtitlesManager = SubtitlesManager;
+
+Object.defineProperty(window, 'playlist', { get: () => playlist, set: (val) => { playlist = val; } });
+Object.defineProperty(window, 'currentIndex', { get: () => currentIndex, set: (val) => { currentIndex = val; } });
+Object.defineProperty(window, 'isLooping', { get: () => isLooping, set: (val) => { isLooping = val; } });
+Object.defineProperty(window, 'isLoopingCurrent', { get: () => isLoopingCurrent, set: (val) => { isLoopingCurrent = val; } });
+Object.defineProperty(window, 'isShuffling', { get: () => isShuffling, set: (val) => { isShuffling = val; } });
+Object.defineProperty(window, 'shuffledIndices', { get: () => shuffledIndices, set: (val) => { shuffledIndices = val; } });
+Object.defineProperty(window, 'currentShuffleIndex', { get: () => currentShuffleIndex, set: (val) => { currentShuffleIndex = val; } });
+Object.defineProperty(window, 'clickTimeout', { get: () => clickTimeout, set: (val) => { clickTimeout = val; } });
+Object.defineProperty(window, 'controlsTimeout', { get: () => controlsTimeout, set: (val) => { controlsTimeout = val; } });
+Object.defineProperty(window, 'isFullscreen', { get: () => isFullscreen, set: (val) => { isFullscreen = val; } });
+Object.defineProperty(window, 'seekTargetTime', { get: () => seekTargetTime, set: (val) => { seekTargetTime = val; } });
+Object.defineProperty(window, 'isSeekingSmooth', { get: () => isSeekingSmooth, set: (val) => { isSeekingSmooth = val; } });
+Object.defineProperty(window, 'lastSeekUpdate', { get: () => lastSeekUpdate, set: (val) => { lastSeekUpdate = val; } });
+Object.defineProperty(window, 'isDragging', { get: () => isDragging, set: (val) => { isDragging = val; } });
+Object.defineProperty(window, 'animationFrame', { get: () => animationFrame, set: (val) => { animationFrame = val; } });
+Object.defineProperty(window, 'lastVolume', { get: () => lastVolume, set: (val) => { lastVolume = val; } });
+Object.defineProperty(window, 'volumeChanged', { get: () => volumeChanged, set: (val) => { volumeChanged = val; } });
+Object.defineProperty(window, 'mediaErrorDialogOpen', { get: () => mediaErrorDialogOpen, set: (val) => { mediaErrorDialogOpen = val; } });
+Object.defineProperty(window, 'hardwareFallbackAttemptedPath', { get: () => hardwareFallbackAttemptedPath, set: (val) => { hardwareFallbackAttemptedPath = val; } });
+Object.defineProperty(window, 'preparedFallbackAttemptedPath', { get: () => preparedFallbackAttemptedPath, set: (val) => { preparedFallbackAttemptedPath = val; } });
+
+(window as any).playFile = playFile;
+(window as any).updatePlayPauseIcon = updatePlayPauseIcon;
+(window as any).updatePlaylistUI = updatePlaylistUI;
+(window as any).generateShuffledPlaylist = generateShuffledPlaylist;
+(window as any).togglePlayPause = togglePlayPause;
+(window as any).playPrevious = playPrevious;
+(window as any).playNext = playNext;
+(window as any).toggleMute = toggleMute;
+(window as any).updateVolume = updateVolume;
+(window as any).addToPlaylist = addToPlaylist;
 
 function toFileSystemPath(filePath) {
   if (!filePath) return filePath;
@@ -283,7 +360,7 @@ function setPlaybackSpeed(speed) {
   document.querySelectorAll(".speed-option").forEach((option) => {
     option.classList.toggle(
       "active",
-      Number(option.dataset.speed) === normalizedSpeed,
+      Number((option as HTMLElement).dataset.speed) === normalizedSpeed,
     );
   });
 }
@@ -423,7 +500,7 @@ document.addEventListener("DOMContentLoaded", () => {
   document.querySelectorAll(".speed-option").forEach((option) => {
     option.addEventListener("click", (e) => {
       e.stopPropagation();
-      const speed = parseFloat(option.dataset.speed);
+      const speed = parseFloat((option as HTMLElement).dataset.speed);
       setPlaybackSpeed(speed);
 
       // Close dropdown
@@ -555,9 +632,9 @@ function updateSliderProgress() {
     if (!mediaPlayer.duration) return;
 
     const progress = (mediaPlayer.currentTime / mediaPlayer.duration) * 100;
-    timeSlider.style.setProperty("--progress-percent", progress);
+    timeSlider.style.setProperty("--progress-percent", progress.toString());
 
-    const thumb = timeSlider.querySelector("::-webkit-slider-thumb");
+    const thumb = timeSlider.querySelector("::-webkit-slider-thumb") as HTMLElement;
     if (thumb) {
       thumb.style.transform = `translateX(${progress}%)`;
     }
@@ -571,7 +648,7 @@ function handleSliderInteraction(e) {
 
   if (!isNaN(targetTime)) {
     timeDisplay.textContent = `${formatTime(targetTime)} / ${formatTime(mediaPlayer.duration)}`;
-    timeSlider.style.setProperty("--progress-percent", pos * 100);
+    timeSlider.style.setProperty("--progress-percent", (pos * 100).toString());
 
     seekTargetTime = targetTime;
 
@@ -609,8 +686,8 @@ function smoothSeek() {
 
 function updateTimeDisplay() {
   if (!isNaN(mediaPlayer.duration)) {
-    timeSlider.max = mediaPlayer.duration;
-    timeSlider.value = mediaPlayer.currentTime;
+    timeSlider.max = mediaPlayer.duration.toString();
+    timeSlider.value = mediaPlayer.currentTime.toString();
     timeDisplay.textContent = `${formatTime(mediaPlayer.currentTime)} / ${formatTime(mediaPlayer.duration)}`;
     updateSliderProgress();
   }
@@ -638,7 +715,7 @@ mediaPlayer.addEventListener("timeupdate", () => {
 });
 mediaPlayer.addEventListener("ended", handleMediaEnd);
 mediaPlayer.addEventListener("loadedmetadata", () => {
-  timeSlider.max = mediaPlayer.duration;
+  timeSlider.max = mediaPlayer.duration.toString();
   updateTimeDisplay();
 
   if (mediaPlayer.fastSeek) {
@@ -774,9 +851,10 @@ function toggleLoop() {
   }
 }
 
-function changePlaybackSpeed() {
-  mediaPlayer.playbackRate = parseFloat(playbackSpeedSelect.value);
-}
+// Unused:
+// function changePlaybackSpeed() {
+//   mediaPlayer.playbackRate = parseFloat(playbackSpeedSelect.value);
+// }
 
 function updateVolumeIcon(volume) {
   if (volume === 0) {
@@ -788,7 +866,7 @@ function updateVolumeIcon(volume) {
 
 // Keyboard shortcuts
 document.addEventListener("keydown", (e) => {
-  if (e.target.tagName === "INPUT") return;
+  if ((e.target as HTMLElement).tagName === "INPUT") return;
 
   switch (e.code) {
     case "Space":
@@ -845,6 +923,12 @@ document.addEventListener("keydown", (e) => {
     case "KeyF":
       e.preventDefault();
       toggleFullscreen();
+      break;
+    case "Escape":
+      if (isFullscreen) {
+        e.preventDefault();
+        toggleFullscreen();
+      }
       break;
     case "KeyI":
       e.preventDefault();
@@ -1022,7 +1106,7 @@ function updatePlaylistUI() {
     const element = document.createElement("div");
     element.className = `playlist-item ${index === currentIndex ? "active" : ""}`;
     element.draggable = true;
-    element.dataset.index = index;
+    element.dataset.index = index.toString();
     element.innerHTML = `
             <div class="playlist-item-content">
                 <span class="title">${item.metadata.title}</span>
@@ -1038,7 +1122,7 @@ function updatePlaylistUI() {
     element
       .querySelector(".playlist-item-content")
       .addEventListener("click", (e) => {
-        if (!e.target.classList.contains("remove-button")) {
+        if (!(e.target as HTMLElement).classList.contains("remove-button")) {
           currentIndex = index;
           playFile(item.path);
         }
@@ -1184,6 +1268,13 @@ async function playFile(filePath) {
   if (!filePath) {
     console.warn("No file path provided to playFile");
     return;
+  }
+
+  // Pre-flight check and transcoding for unsupported video/audio streams (e.g. E-AC3)
+  try {
+    filePath = toFileSystemPath(await ipcRenderer.invoke("prepare-media-for-playback", filePath));
+  } catch (err) {
+    console.warn("Transcoding check failed, falling back to native file:", err);
   }
 
   mediaErrorDialogOpen = false;
@@ -1401,7 +1492,7 @@ function clearPlaylist() {
 
   // Clear the time display and slider
   timeDisplay.textContent = "00:00 / 00:00";
-  timeSlider.value = 0;
+  timeSlider.value = "0";
 
   // Save empty playlist to store
   store.set("playlist", playlist);
@@ -1526,15 +1617,15 @@ document.addEventListener("drop", async (e) => {
   e.stopPropagation();
 
   const files = Array.from(e.dataTransfer.files).filter((file) => {
-    const ext = path.extname(file.path).toLowerCase();
+    const ext = path.extname((file as any).path).toLowerCase();
     return supportedFormats.includes(ext);
   });
 
-  const promises = files.map((file) => addToPlaylist(file.path));
+  const promises = files.map((file) => addToPlaylist((file as any).path));
 
   if (currentIndex === -1 && files.length > 0) {
     currentIndex = 0;
-    playFile(files[0].path);
+    playFile((files[0] as any).path);
   }
 
   // Save playlist after basic info is added
@@ -1653,3 +1744,4 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // --- End: Transcode Overlay Logic ---
+export {};

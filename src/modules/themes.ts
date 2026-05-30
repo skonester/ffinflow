@@ -200,7 +200,7 @@ const injectAdvancedCSS = (theme) => {
 };
 
 const applyTheme = (themeName) => {
-    const theme = themes[themeName];
+    let theme = themes[themeName];
     if (!theme) {
         console.warn(`Theme "${themeName}" not found. Falling back to default theme.`);
         theme = themes.default;
@@ -209,7 +209,7 @@ const applyTheme = (themeName) => {
     if (typeof document !== 'undefined') {
         const root = document.documentElement;
         Object.entries(theme).forEach(([property, value]) => {
-            root.style.setProperty(`--${property.replace(/([A-Z])/g, "-$1").toLowerCase()}`, value);
+            root.style.setProperty(`--${property.replace(/([A-Z])/g, "-$1").toLowerCase()}`, value as string);
         });
         injectAdvancedCSS(theme);
     }
@@ -219,3 +219,5 @@ const applyTheme = (themeName) => {
 const getCurrentTheme = () => store.get('selected-theme', 'default');
 
 module.exports = { themes, applyTheme, getCurrentTheme };
+
+export {};

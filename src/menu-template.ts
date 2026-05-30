@@ -1,5 +1,5 @@
 const { app, dialog, shell } = require('electron');
-const { getCurrentTheme } = require('./src/themes');
+const { getCurrentTheme } = require('./modules/themes');
 const { RELEASE_NOTES } = require('./release-notes');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
@@ -353,3 +353,4 @@ const createMenuTemplate = (mainWindow) => [
 ];
 
 module.exports = createMenuTemplate;
+export {};

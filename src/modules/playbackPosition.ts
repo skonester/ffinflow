@@ -1,4 +1,4 @@
-const Store = new require('electron-store');
+const Store = require('electron-store');
 const store = new Store();
 
 const LAST_POSITIONS_KEY = 'lastPositions';
@@ -61,8 +61,8 @@ function showResumeDialog(filePath, position) {
             }
         }
 
-        const template = document.getElementById('resume-dialog-template');
-        const dialog = template.content.cloneNode(true).firstElementChild;
+        const template = document.getElementById('resume-dialog-template') as HTMLTemplateElement;
+        const dialog = (template.content.cloneNode(true) as DocumentFragment).firstElementChild as HTMLElement;
         dialog.dataset.filePath = filePath;
         activeDialog = dialog;
 
@@ -91,12 +91,12 @@ function showResumeDialog(filePath, position) {
         document.getElementById('player-container').appendChild(dialog);
 
         // Handle user choice
-        dialog.querySelector('.resume-yes').onclick = () => {
+        (dialog.querySelector('.resume-yes') as HTMLElement).onclick = () => {
             cleanupDialog();
             resolve(true);
         };
         
-        dialog.querySelector('.resume-no').onclick = () => {
+        (dialog.querySelector('.resume-no') as HTMLElement).onclick = () => {
             cleanupDialog();
             resolve(false);
         };
@@ -110,3 +110,5 @@ function showResumeDialog(filePath, position) {
 }
 
 module.exports = { showResumeDialog, removeLastPosition, getLastPosition, saveLastPosition }
+
+export {};
