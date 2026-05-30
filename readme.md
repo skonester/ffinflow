@@ -40,6 +40,25 @@ ffinflow was built to solve that gap without introducing unnecessary complexity.
 
 ---
 
+## TypeScript and Portability
+
+The codebase was originally written in JavaScript and has since been fully transitioned to TypeScript. The migration was done for long-term maintainability: explicit types make the relationship between the main process, the renderer process, and the various sub-modules easier to follow, especially for anyone reading the code for the first time. The compiled output is still plain CommonJS JavaScript that Electron loads directly, so the runtime behavior is identical.
+
+The author primarily uses Windows, which is why ffinflow ships as a Windows installer and why the current build pipeline targets NSIS. However, the application was deliberately built on Electron, HTML, CSS, and FFmpeg rather than on Windows-specific frameworks like WPF, WinUI, or UWP. Nothing in the core player logic, transcoding engine, subtitle system, or UI layer depends on Windows APIs. The only platform-specific pieces are the FFmpeg binary paths (which already branch between packaged and development modes), the NSIS installer script for file associations, and the single-instance lock that checks for `win32`.
+
+This means the codebase is structured so that someone who wants to run ffinflow on macOS or Linux could do so by:
+
+- Swapping in platform-appropriate FFmpeg and FFprobe binaries.
+- Adjusting the binary path resolution in `main.ts` (replacing `.exe` references).
+- Replacing the NSIS installer configuration with a DMG or AppImage target in the Electron Builder config.
+- Removing or adapting the Windows registry file association logic.
+
+The core application -- the player, the transcoding pipeline, the playlist, the subtitle engine, the themes, the keyboard shortcuts, the media info overlay -- would not need to change.
+
+This was an intentional design decision. By staying on web technologies and avoiding platform-locked toolkits, ffinflow remains a project that other developers can fork, port, or pull individual pieces from. If someone wants the transcoding engine without the UI, or the subtitle extraction logic for a different player, or the FFprobe-based compatibility routing for their own Electron app, those components are self-contained and written in standard TypeScript.
+
+---
+
 ## Transcoding Engine
 
 The core differentiator of ffinflow is its pre-flight media processing pipeline. Before any file reaches the player surface, ffinflow probes it with FFprobe to inspect every stream. Based on what it finds, the engine takes one of three paths:
@@ -204,19 +223,62 @@ The selected theme is saved and restored between sessions.
 
 ## Supported Formats
 
-### Video
+ffinflow accepts a wide range of media files. What happens after a file is opened depends on whether Electron can play it natively or whether the transcoding engine needs to process it first.
 
-`.mp4`, `.mkv`, `.avi`, `.webm`, `.mov`, `.flv`, `.m4v`, `.3gp`, `.wmv`, `.ts`
+### Containers Accepted by the Application
 
-### Audio
+| Type | Extensions |
+| :--- | :--- |
+| Video | `.mp4`, `.mkv`, `.avi`, `.webm`, `.mov`, `.flv`, `.m4v`, `.3gp`, `.wmv`, `.ts` |
+| Audio | `.mp3`, `.wav`, `.ogg`, `.aac`, `.m4a`, `.flac`, `.wma`, `.opus` |
+| Subtitles | `.srt`, `.vtt`, `.ass`, `.ssa`, `.sub` |
 
-`.mp3`, `.wav`, `.ogg`, `.aac`, `.m4a`, `.flac`, `.wma`, `.opus`
+These are the file types shown in the Open Files dialog, accepted via drag-and-drop, and recognized when passed as command-line arguments or through file associations.
 
-### Subtitles
+### Electron-Native Playback (Direct, No Processing)
 
-`.srt`, `.vtt`, `.ass`, `.ssa`, `.sub`
+The following container and codec combinations are played directly by Chromium without any transcoding or remuxing:
 
-Files that Chromium cannot decode directly may still play after ffinflow processes them through the transcoding engine. The specific path taken (direct playback, audio transcode, remux, or full conversion) depends on the container and codec combination detected during probing.
+| | Formats |
+| :--- | :--- |
+| Containers | MP4, WebM, M4V, MP3, WAV, OGG, AAC, M4A, FLAC, Opus |
+| Video codecs | H.264 (AVC), H.265 (HEVC), VP8, VP9, AV1 |
+| Audio codecs | AAC, Opus, Vorbis, FLAC, MP3, WAV/PCM |
+
+A file is passed directly to the player only when its container is in the native list and all of its streams use codecs from the lists above.
+
+### FFmpeg-Processed Playback (Transcoding Engine)
+
+Files that fall outside the native playback path are processed by the transcoding engine before reaching the player. The engine handles three scenarios:
+
+**Unsupported audio in a native container** -- The video stream is copied losslessly and the audio is transcoded to FLAC. This covers codecs that Chromium cannot decode:
+
+| Audio codecs handled | Examples |
+| :--- | :--- |
+| Dolby Digital Plus | E-AC3 |
+| Dolby Digital | AC-3 |
+| DTS / DTS-HD | DTS, DTS-HD MA |
+| TrueHD | Dolby TrueHD |
+| PCM variants | PCM S24LE, PCM S32LE |
+| Legacy codecs | WMA, RealAudio, Musepack |
+
+**Non-native container with compatible streams** -- Containers like FLV, AVI, WMV, 3GP, and TS that hold browser-friendly streams (such as H.264 video with AAC audio) are remuxed into a temporary MP4 by copying all streams without re-encoding.
+
+**Non-native container with incompatible streams** -- Containers with codecs that neither Chromium nor a simple remux can handle are fully converted to H.264 video with AAC audio in a temporary MP4.
+
+### Video Codecs Supported Through FFmpeg
+
+Any video codec that the bundled FFmpeg build can decode is supported through the full conversion path. This includes but is not limited to:
+
+MPEG-1, MPEG-2, MPEG-4 Part 2 (DivX/Xvid), H.264 (AVC), H.265 (HEVC), VP6, VP8, VP9, AV1, Theora, WMV1, WMV2, WMV3 (VC-1), RealVideo, FLV1 (Sorenson Spark), MJPEG, ProRes, DNxHD, FFV1, HuffYUV, Cinepak, Indeo, MS-MPEG4
+
+### Audio Codecs Supported Through FFmpeg
+
+Any audio codec that the bundled FFmpeg build can decode is supported through the transcoding path:
+
+AAC, MP3, FLAC, Opus, Vorbis, AC-3, E-AC3, DTS, DTS-HD, TrueHD, WMA, WMA Pro, WMA Lossless, PCM (all variants), ALAC, Musepack, RealAudio, AMR-NB, AMR-WB, Speex, G.711, ADPCM (all variants), MP2, MP1, AC-4, ATRAC
+
+The specific codec support depends on the FFmpeg build included with the application. The default build shipped with ffinflow is a full GPL build with most decoders enabled.
 
 ---
 
