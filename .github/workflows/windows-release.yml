@@ -35,10 +35,10 @@ jobs:
 
       - name: Validate JavaScript syntax
         run: |
-          node --check main.js
-          node --check renderer.js
-          node --check menu-template.js
-          node --check subtitles.js
+          node --check out/main.js
+          node --check out/renderer.js
+          node --check out/menu-template.js
+          node --check out/subtitles.js
 
       - name: Build and publish release
         run: npm run publish
