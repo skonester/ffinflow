@@ -7,11 +7,11 @@ Var AssociateState
 
 ; Helper macro to safely remove file association if it still points to ffinflow
 !macro SafeRemoveAssociation EXT
-  ReadRegStr $0 HKCU "Software\Classes\${EXT}" ""
+  ReadRegStr $0 HKLM "Software\Classes\${EXT}" ""
   ${If} $0 == "ffinflow.AssocFile"
-    DeleteRegValue HKCU "Software\Classes\${EXT}" ""
+    DeleteRegValue HKLM "Software\Classes\${EXT}" ""
   ${EndIf}
-  DeleteRegValue HKCU "Software\Classes\${EXT}\OpenWithProgids" "ffinflow.AssocFile"
+  DeleteRegValue HKLM "Software\Classes\${EXT}\OpenWithProgids" "ffinflow.AssocFile"
 !macroend
 
 ; Hook into customHeader to insert our custom page
@@ -48,39 +48,39 @@ FunctionEnd
 
 !macro customInstall
   ${If} $AssociateState == 1
-    DetailPrint "Registering current-user file associations..."
+    DetailPrint "Registering machine-wide file associations..."
 
     ; Applications Open Verb
-    WriteRegStr HKCU "Software\Classes\Applications\ffinflow.exe\shell\open\command" "" '"$INSTDIR\ffinflow.exe" "%1"'
+    WriteRegStr HKLM "Software\Classes\Applications\ffinflow.exe\shell\open\command" "" '"$INSTDIR\ffinflow.exe" "%1"'
 
     ; ffinflow.AssocFile type definition
-    WriteRegStr HKCU "Software\Classes\ffinflow.AssocFile" "" "ffinflow Media File"
-    WriteRegStr HKCU "Software\Classes\ffinflow.AssocFile\DefaultIcon" "" "$INSTDIR\ffinflow.exe,0"
-    WriteRegStr HKCU "Software\Classes\ffinflow.AssocFile\shell\open\command" "" '"$INSTDIR\ffinflow.exe" "%1"'
+    WriteRegStr HKLM "Software\Classes\ffinflow.AssocFile" "" "ffinflow Media File"
+    WriteRegStr HKLM "Software\Classes\ffinflow.AssocFile\DefaultIcon" "" "$INSTDIR\ffinflow.exe,0"
+    WriteRegStr HKLM "Software\Classes\ffinflow.AssocFile\shell\open\command" "" '"$INSTDIR\ffinflow.exe" "%1"'
 
     ; Register individual extensions
-    WriteRegStr HKCU "Software\Classes\.mp4" "" "ffinflow.AssocFile"
-    WriteRegStr HKCU "Software\Classes\.mkv" "" "ffinflow.AssocFile"
-    WriteRegStr HKCU "Software\Classes\.avi" "" "ffinflow.AssocFile"
-    WriteRegStr HKCU "Software\Classes\.webm" "" "ffinflow.AssocFile"
-    WriteRegStr HKCU "Software\Classes\.mov" "" "ffinflow.AssocFile"
-    WriteRegStr HKCU "Software\Classes\.flv" "" "ffinflow.AssocFile"
-    WriteRegStr HKCU "Software\Classes\.3gp" "" "ffinflow.AssocFile"
-    WriteRegStr HKCU "Software\Classes\.wmv" "" "ffinflow.AssocFile"
-    WriteRegStr HKCU "Software\Classes\.ts" "" "ffinflow.AssocFile"
-    WriteRegStr HKCU "Software\Classes\.m4v" "" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\Classes\.mp4" "" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\Classes\.mkv" "" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\Classes\.avi" "" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\Classes\.webm" "" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\Classes\.mov" "" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\Classes\.flv" "" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\Classes\.3gp" "" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\Classes\.wmv" "" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\Classes\.ts" "" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\Classes\.m4v" "" "ffinflow.AssocFile"
 
     ; Register OpenWithProgids so it shows up in "Open With" list even if UserChoice exists
-    WriteRegStr HKCU "Software\Classes\.mp4\OpenWithProgids" "ffinflow.AssocFile" ""
-    WriteRegStr HKCU "Software\Classes\.mkv\OpenWithProgids" "ffinflow.AssocFile" ""
-    WriteRegStr HKCU "Software\Classes\.avi\OpenWithProgids" "ffinflow.AssocFile" ""
-    WriteRegStr HKCU "Software\Classes\.webm\OpenWithProgids" "ffinflow.AssocFile" ""
-    WriteRegStr HKCU "Software\Classes\.mov\OpenWithProgids" "ffinflow.AssocFile" ""
-    WriteRegStr HKCU "Software\Classes\.flv\OpenWithProgids" "ffinflow.AssocFile" ""
-    WriteRegStr HKCU "Software\Classes\.3gp\OpenWithProgids" "ffinflow.AssocFile" ""
-    WriteRegStr HKCU "Software\Classes\.wmv\OpenWithProgids" "ffinflow.AssocFile" ""
-    WriteRegStr HKCU "Software\Classes\.ts\OpenWithProgids" "ffinflow.AssocFile" ""
-    WriteRegStr HKCU "Software\Classes\.m4v\OpenWithProgids" "ffinflow.AssocFile" ""
+    WriteRegStr HKLM "Software\Classes\.mp4\OpenWithProgids" "ffinflow.AssocFile" ""
+    WriteRegStr HKLM "Software\Classes\.mkv\OpenWithProgids" "ffinflow.AssocFile" ""
+    WriteRegStr HKLM "Software\Classes\.avi\OpenWithProgids" "ffinflow.AssocFile" ""
+    WriteRegStr HKLM "Software\Classes\.webm\OpenWithProgids" "ffinflow.AssocFile" ""
+    WriteRegStr HKLM "Software\Classes\.mov\OpenWithProgids" "ffinflow.AssocFile" ""
+    WriteRegStr HKLM "Software\Classes\.flv\OpenWithProgids" "ffinflow.AssocFile" ""
+    WriteRegStr HKLM "Software\Classes\.3gp\OpenWithProgids" "ffinflow.AssocFile" ""
+    WriteRegStr HKLM "Software\Classes\.wmv\OpenWithProgids" "ffinflow.AssocFile" ""
+    WriteRegStr HKLM "Software\Classes\.ts\OpenWithProgids" "ffinflow.AssocFile" ""
+    WriteRegStr HKLM "Software\Classes\.m4v\OpenWithProgids" "ffinflow.AssocFile" ""
 
     ; Notify shell of associations update
     System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, i 0, i 0)'
@@ -88,8 +88,8 @@ FunctionEnd
 !macroend
 
 !macro customUnInstall
-  DeleteRegKey HKCU "Software\Classes\ffinflow.AssocFile"
-  DeleteRegKey HKCU "Software\Classes\Applications\ffinflow.exe"
+  DeleteRegKey HKLM "Software\Classes\ffinflow.AssocFile"
+  DeleteRegKey HKLM "Software\Classes\Applications\ffinflow.exe"
 
   !insertmacro SafeRemoveAssociation ".mp4"
   !insertmacro SafeRemoveAssociation ".mkv"
