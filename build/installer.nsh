@@ -50,6 +50,26 @@ FunctionEnd
   ${If} $AssociateState == 1
     DetailPrint "Registering machine-wide file associations..."
 
+    ; --- RegisteredApplications (required for Windows 11 Default Apps) ---
+    WriteRegStr HKLM "Software\RegisteredApplications" "ffinflow" "Software\ffinflow\Capabilities"
+
+    ; --- RegisteredApplication definition ---
+    WriteRegStr HKLM "Software\ffinflow" "" "ffinflow Media Player"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "ApplicationName" "ffinflow"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "ApplicationDescription" "ffinflow is an FFmpeg-based media player supporting a wide range of video and audio formats."
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "ApplicationIcon" '"$INSTDIR\ffinflow.exe",0'
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "FileAssociations" ".mp4" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "FileAssociations" ".mkv" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "FileAssociations" ".avi" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "FileAssociations" ".webm" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "FileAssociations" ".mov" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "FileAssociations" ".flv" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "FileAssociations" ".3gp" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "FileAssociations" ".wmv" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "FileAssociations" ".ts" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "FileAssociations" ".m4v" "ffinflow.AssocFile"
+    WriteRegStr HKLM "Software\ffinflow\Capabilities" "SupportedTypes" ".mp4;.mkv;.avi;.webm;.mov;.flv;.3gp;.wmv;.ts;.m4v"
+
     ; --- Modern Windows Media Client Registration (like VLC) ---
     WriteRegStr HKLM "Software\Clients\Media\ffinflow" "" "ffinflow Media Player"
     WriteRegStr HKLM "Software\Clients\Media\ffinflow\Capabilities" "ApplicationDescription" "ffinflow is an FFmpeg-based media player supporting a wide range of video and audio formats."
@@ -158,6 +178,8 @@ FunctionEnd
 !macro customUnInstall
   ; Remove modern media client registration
   DeleteRegKey HKLM "Software\Clients\Media\ffinflow"
+  DeleteRegKey HKLM "Software\RegisteredApplications" "ffinflow"
+  DeleteRegKey HKLM "Software\ffinflow"
   DeleteRegKey HKLM "Software\Classes\Applications\ffinflow.exe"
 
   ; Remove file type definition
