@@ -1,6 +1,6 @@
 {
   "name": "ffinflow",
-  "version": "1.4.1",
+  "version": "1.4.5",
   "description": "FFmpeg Media player",
   "author": "Skonester",
   "homepage": "https://github.com/skonester/ffinflow",
@@ -14,7 +14,9 @@
     "start": "tsc && electron .",
     "build": "tsc && electron-builder",
     "publish": "tsc && electron-builder -p always",
-    "postinstall": "node copyFFmpeg.js"
+    "postinstall": "node copyFFmpeg.js",
+    "check:pipeline": "tsc -p tsconfig.pipeline.json --noEmit",
+    "test": "npm run compile && npm run check:pipeline && node --test tests/*.test.cjs"
   },
   "dependencies": {
     "@electron/remote": "^2.1.2",
@@ -70,7 +72,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "perMachine": true,
-      "include": "build/installer.nsh"
+      "include": "build/installer.nsh",
+      "warningsAsErrors": false
     },
     "publish": {
       "provider": "github",

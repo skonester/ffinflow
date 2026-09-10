@@ -61,29 +61,38 @@ This was an intentional design decision. By staying on web technologies and avoi
 
 ## Transcoding Engine
 
-The core differentiator of ffinflow is its pre-flight media processing pipeline. Before any file reaches the player surface, ffinflow probes it with FFprobe to inspect every stream. Based on what it finds, the engine takes one of three paths:
+The motivating case is E-AC3 (Dolby Digital Plus) audio that can be silent in Electron. The pipeline probes every playable audio/video stream and chooses a typed preparation plan. Codec policy and FFmpeg execution are independent of Electron.
 
-### Direct Playback (No Processing)
+### Direct Playback
 
-If the file uses a browser-native container (MP4, WebM, M4V) and all streams use codecs that Chromium can decode natively (H.264, H.265/HEVC, VP8, VP9, AV1 for video; AAC, Opus, Vorbis, FLAC, MP3 for audio), the file is passed directly to the player with zero processing overhead.
+When every playable audio/video stream matches its container-specific compatibility policy, the original file is played without conversion. Examples include H.264/AAC MP4 and VP8/Vorbis WebM. Probing still occurs. Codec names alone do not guarantee playback on every PC: HEVC support, profiles, bit depth, and hardware decoding depend on the Electron build and machine.
 
 ### Audio Transcoding (Lossless Video Copy)
 
-If the file contains video that Chromium can decode but the audio stream uses an unsupported codec -- such as E-AC3 (Dolby Digital Plus), AC-3, DTS, or TrueHD -- ffinflow transcodes only the audio stream to FLAC while copying the video stream bit-for-bit. This preserves the original video quality with no re-encoding.
+When video is compatible with MP4 playback but audio is not, unsupported audio tracks such as E-AC3, AC-3, DTS, or TrueHD are converted to FLAC. Compatible video and audio tracks are copied. Every playable audio/video stream is explicitly mapped, including secondary audio tracks.
 
-The transcoded output is saved alongside the original file as `<filename>_FIXED.mp4` and reused on subsequent plays. The process uses maximum CPU threading, zero-compression FLAC encoding for speed, 5.1 surround sound channel mapping, HEVC tagging for Electron visibility, and the `faststart` flag so playback can begin immediately.
+Video copying preserves compressed video data and resolution, including 8K, without scaling or video re-encoding. FLAC uses compression level zero for speed. Input channel counts are retained instead of forcing stereo or 7.1 into 5.1. Only copied HEVC video receives the hvc1 tag. FLAC preserves decoded samples within the selected PCM precision; it cannot restore information lost in a lossy source or retain object-audio metadata such as Atmos.
 
-### Container Remuxing and Full Conversion
+### Container Remuxing and Video Conversion
 
-If the file uses a container that Chromium cannot open at all -- such as FLV, AVI, WMV, or 3GP -- ffinflow inspects the internal streams:
+- Compatible streams in a non-native container are remuxed to MP4. Time depends on file size and storage speed.
+- Compatible video with incompatible audio uses the audio-conversion path above.
+- Incompatible video streams are converted to H.264 using the veryfast x264 preset, with AAC audio. Other compatible video tracks remain copied. Video and audio compatibility are evaluated independently.
+- VP8/Vorbis WebM can play directly, but those codecs are not blindly copied into MP4 from other containers.
 
-- If the video and audio codecs are already browser-compatible (for example, an FLV containing H.264 video with AAC audio), ffinflow performs a fast stream copy (remux) into a temporary MP4 file. This takes seconds, not minutes, because no re-encoding occurs.
-- If the streams themselves are incompatible, ffinflow performs a full conversion to H.264/AAC MP4 using the `veryfast` x264 preset.
+### Cache, Validation, and Failures
 
-Temporary files are written to the system temp directory under `ffinflow-media-cache`. All FFmpeg operations use atomic writes: output goes to a `.tmp` file first, then is renamed to the final path on success. If the process is interrupted, no corrupt partial files are left behind.
+All prepared outputs now live in the system temporary directory under ffinflow-media-cache, instead of beside the original as <filename>_FIXED.mp4. This avoids source-folder write requirements and filename collisions. Existing _FIXED.mp4 files are untouched and are not automatically trusted as cache entries.
+
+Cache identity includes source path, size, modification time, and preparation policy. Repeated requests for the same active source share one job. Cached output requires a matching manifest and successful stream validation. Empty, changed, or invalid entries are rebuilt.
+
+New output goes to a unique temporary file, is probed for expected streams, codecs, copied video dimensions, and channel counts, then is renamed into place. If the source changes during conversion, preparation fails. Errors are reported instead of silently retrying the incompatible source. Playback waits for preparation and validation to finish; faststart optimizes the completed MP4 layout, not playback during conversion.
+
+FFmpeg runs directly with argument arrays, bounded log capture, progress reporting, a 60-second probe timeout, and a six-hour conversion timeout. App shutdown cancels active jobs. Normal failure cleanup removes owned temporary files. Forced termination can leave temporary artifacts, which are never valid cache entries. There is currently no automatic cache eviction or size limit; the cache can be cleared with the player closed.
+
+Subtitles, attachments, and cover art are not muxed into prepared playback files. Subtitle discovery, media information, and resume lookup use the original source. Rapid file changes and Stop invalidate pending playback requests so an older conversion cannot start playing over a newer selection. Superseded conversions may finish and populate the cache.
 
 ---
-
 ## Player Interface
 
 The interface uses a fixed layout with no hidden controls or gesture-dependent interactions.
@@ -245,7 +254,7 @@ The following container and codec combinations are played directly by Chromium w
 | Video codecs | H.264 (AVC), H.265 (HEVC), VP8, VP9, AV1 |
 | Audio codecs | AAC, Opus, Vorbis, FLAC, MP3, WAV/PCM |
 
-A file is passed directly to the player only when its container is in the native list and all of its streams use codecs from the lists above.
+These lists are not a cross-product: combinations must match the container-specific policy in src/media/preparation-plan.ts. Every playable audio/video stream is checked; attached cover images are excluded from video routing. Actual decoder support also depends on the Electron build and hardware.
 
 ### FFmpeg-Processed Playback (Transcoding Engine)
 
@@ -321,7 +330,9 @@ Updates can also be triggered manually from the Help menu.
 
 | Directory / File | Purpose |
 | :--- | :--- |
-| `src/main.ts` | Electron main process. Application lifecycle, FFmpeg/FFprobe path configuration, file-open routing, media probing, transcoding engine, and IPC handlers. |
+| src/main.ts | Electron lifecycle, media paths, preparation-service integration, media information, and IPC handlers. |
+| src/media/preparation-plan.ts | Strictly typed compatibility decisions and per-stream FFmpeg arguments. |
+| src/media/preparation-service.ts | Process lifecycle, output validation, stable cache identity, and active-job deduplication. |
 | `src/renderer.ts` | Player UI orchestration. Playlist state, playback controls, media info overlay, keyboard shortcuts, drag-and-drop, menu event wiring, and settings management. |
 | `src/subtitles.ts` | Subtitle discovery, embedded subtitle extraction via FFmpeg, subtitle rendering, timing adjustment, and cache management. |
 | `src/menu-template.ts` | Native desktop menu definitions for File, View, Playback, and Help menus. |
@@ -370,6 +381,18 @@ npm run publish
 
 ---
 
+### Pipeline Regression Tests
+
+Run npm test to compile the application, strictly type-check the independent pipeline, and test generated media fixtures with the bundled FFmpeg/FFprobe binaries. Tests cover E-AC3 conversion, non-silent decoded output, channel preservation, unchanged compressed video data, secondary tracks, cache recovery, and process failures. Binary paths can be overridden with FFINFLOW_FFMPEG and FFINFLOW_FFPROBE.
+
+To include the generated 8K stream-copy fixture in PowerShell:
+
+```powershell
+$env:FFINFLOW_TEST_8K = '1'
+npm test
+```
+
+The pipeline uses strict and noUncheckedIndexedAccess checks through npm run check:pipeline. Existing UI modules retain their current TypeScript settings. These tests verify preparation, not interactive Chromium playback, HDR presentation, or performance with full-length 8K movies.
 ## FFmpeg Binaries
 
 The project uses prebuilt FFmpeg and FFprobe binaries. After `npm install`, the postinstall script copies them into `ffmpeg-binaries/`:

@@ -5,6 +5,7 @@ const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 const store = new Store();
 const { BrowserWindow } = require('electron');
+const { setAsDefaultMediaPlayer } = require('./modules/fileAssociations');
 
 const PROJECT_URL = 'https://github.com/skonester/ffinflow';
 
@@ -48,40 +49,65 @@ const createMenuTemplate = (mainWindow) => [
                 label: 'Themes',
                 submenu: [
                     {
-                        label: 'Default',
+                        label: 'Aurora Breeze (Default)',
                         type: 'radio',
-                        checked: getCurrentTheme() === 'default',
-                        click: () => mainWindow.webContents.send('change-theme', 'default')
+                        checked: getCurrentTheme() === 'auroraBreeze',
+                        click: () => mainWindow.webContents.send('change-theme', 'auroraBreeze')
                     },
+                    {
+                        label: 'Tokyo Night',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'tokyoNight',
+                        click: () => mainWindow.webContents.send('change-theme', 'tokyoNight')
+                    },
+                    {
+                        label: 'Catppuccin Mocha',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'catppuccinMocha',
+                        click: () => mainWindow.webContents.send('change-theme', 'catppuccinMocha')
+                    },
+                    {
+                        label: "Synthwave '84",
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'synthwave84',
+                        click: () => mainWindow.webContents.send('change-theme', 'synthwave84')
+                    },
+                    {
+                        label: 'Nordic Frost',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'nordicFrost',
+                        click: () => mainWindow.webContents.send('change-theme', 'nordicFrost')
+                    },
+                    {
+                        label: 'Cyberpunk 2077',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'cyberpunk2077',
+                        click: () => mainWindow.webContents.send('change-theme', 'cyberpunk2077')
+                    },
+                    {
+                        label: 'Deep Abyss',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'deepAbyss',
+                        click: () => mainWindow.webContents.send('change-theme', 'deepAbyss')
+                    },
+                    {
+                        label: 'Rosé Pine',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'rosePine',
+                        click: () => mainWindow.webContents.send('change-theme', 'rosePine')
+                    },
+                    {
+                        label: 'Dracula',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'draculaVamp',
+                        click: () => mainWindow.webContents.send('change-theme', 'draculaVamp')
+                    },
+                    { type: 'separator' },
                     {
                         label: 'Cosmos',
                         type: 'radio',
                         checked: getCurrentTheme() === 'cosmos',
                         click: () => mainWindow.webContents.send('change-theme', 'cosmos')
-                    },
-                    {
-                        label: 'Blood Moon',
-                        type: 'radio',
-                        checked: getCurrentTheme() === 'bloodMoon',
-                        click: () => mainWindow.webContents.send('change-theme', 'bloodMoon')
-                    },
-                    {
-                        label: 'Crystal Wave',
-                        type: 'radio',
-                        checked: getCurrentTheme() === 'crystalWave',
-                        click: () => mainWindow.webContents.send('change-theme', 'crystalWave')
-                    },
-                    {
-                        label: 'Solar Flare',
-                        type: 'radio',
-                        checked: getCurrentTheme() === 'solarFlare',
-                        click: () => mainWindow.webContents.send('change-theme', 'solarFlare')
-                    },
-                    {
-                        label: 'Aurora Breeze',
-                        type: 'radio',
-                        checked: getCurrentTheme() === 'auroraBreeze',
-                        click: () => mainWindow.webContents.send('change-theme', 'auroraBreeze')
                     },
                     {
                         label: 'Neon Dreams',
@@ -90,16 +116,46 @@ const createMenuTemplate = (mainWindow) => [
                         click: () => mainWindow.webContents.send('change-theme', 'neonDreams')
                     },
                     {
+                        label: 'Quantum Matrix',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'quantum',
+                        click: () => mainWindow.webContents.send('change-theme', 'quantum')
+                    },
+                    {
+                        label: 'Crystal Wave',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'crystalWave',
+                        click: () => mainWindow.webContents.send('change-theme', 'crystalWave')
+                    },
+                    {
                         label: 'Emerald Forest',
                         type: 'radio',
                         checked: getCurrentTheme() === 'emeraldForest',
                         click: () => mainWindow.webContents.send('change-theme', 'emeraldForest')
                     },
                     {
+                        label: 'Blood Moon',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'bloodMoon',
+                        click: () => mainWindow.webContents.send('change-theme', 'bloodMoon')
+                    },
+                    {
                         label: 'Crimson Night',
                         type: 'radio',
                         checked: getCurrentTheme() === 'crimsonNight',
                         click: () => mainWindow.webContents.send('change-theme', 'crimsonNight')
+                    },
+                    {
+                        label: 'Solar Flare',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'solarFlare',
+                        click: () => mainWindow.webContents.send('change-theme', 'solarFlare')
+                    },
+                    {
+                        label: 'Classic Orange',
+                        type: 'radio',
+                        checked: getCurrentTheme() === 'defaultOrange',
+                        click: () => mainWindow.webContents.send('change-theme', 'defaultOrange')
                     }
                 ]
             },
@@ -298,6 +354,21 @@ const createMenuTemplate = (mainWindow) => [
                             buttons: ['OK']
                         });
                     }
+                }
+            },
+            {
+                label: 'Set as Default Player (Associate Media Files)',
+                visible: process.platform === 'win32',
+                click: async () => {
+                    await setAsDefaultMediaPlayer();
+                    shell.openExternal('ms-settings:defaultapps?registeredAppUser=ffinflow');
+                    dialog.showMessageBox(mainWindow, {
+                        type: 'info',
+                        title: 'Default Media Player',
+                        message: 'ffinflow is registered for all media formats!',
+                        detail: 'All video (.mp4, .mkv, .avi, .webm, .mov, etc.) and audio formats have been associated with ffinflow in the Windows registry.\n\nIn the Windows Settings window that just opened, click "Set default" at the top to finalize system defaults with one click.',
+                        buttons: ['OK']
+                    });
                 }
             },
             {

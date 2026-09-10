@@ -1,14 +1,12 @@
+import { MediaPreparationService } from "./media/preparation-service";
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const fs = require("fs").promises;
 const path = require("path");
-const os = require("os");
-const crypto = require("crypto");
 const { fileURLToPath } = require("url");
 const Store = require("electron-store");
 const { autoUpdater } = require("electron-updater");
 const log = require("electron-log");
 const ffmpeg = require("fluent-ffmpeg");
-const { mediaInfoFactory } = require("mediainfo.js");
 const createMenuTemplate = require("./menu-template");
 
 const store = new Store();
@@ -55,15 +53,6 @@ ffmpeg.setFfprobePath(FFPROBE_PATH);
 
 let mainWindow;
 let fileToOpen = null;
-let execaLoader = null;
-
-async function getExeca() {
-  if (!execaLoader) {
-    execaLoader = import("execa").then((module) => module.execa);
-  }
-  return execaLoader;
-}
-
 function toFfprobePath(filePath) {
   if (!filePath) return filePath;
   if (filePath.startsWith("file://")) {
@@ -131,226 +120,36 @@ function formatProbeInfo(filePath, metadata) {
 // AGENT: MEDIA COMPATIBILITY PRE-FLIGHT
 // ==============================================================================
 
-const BROWSER_NATIVE_EXTENSIONS = new Set([
-  ".mp4", ".m4v", ".webm", ".mp3", ".wav", ".ogg", ".aac", ".m4a", ".flac", ".opus",
-]);
+let preparationService: MediaPreparationService | undefined;
+let preparationRequest = 0;
+let activePreparationPath = "";
 
-function getCompatibilityOutputPath(filePath, suffix = "prepared") {
-  const parsedPath = path.parse(filePath);
-  const hash = crypto
-    .createHash("sha1")
-    .update(filePath)
-    .update(String(Date.now()))
-    .digest("hex")
-    .slice(0, 10);
-  const fileName = `${parsedPath.name}_${suffix}_${hash}.mp4`;
-  return path.join(app.getPath("temp"), "ffinflow-media-cache", fileName);
-}
-
-async function analyzeWithMediaInfo(filePath) {
-  let fileHandle;
-  let mediaInfo;
-
-  try {
-    fileHandle = await fs.open(filePath, "r");
-    const stats = await fileHandle.stat();
-    mediaInfo = await mediaInfoFactory({ format: "object" });
-
-    const readChunk = async (size, offset) => {
-      const buffer = Buffer.alloc(size);
-      const { bytesRead } = await fileHandle.read(buffer, 0, size, offset);
-      return bytesRead === size ? buffer : buffer.subarray(0, bytesRead);
-    };
-
-    const result = await mediaInfo.analyzeData(() => stats.size, readChunk);
-    const tracks = result?.media?.track || [];
-    const general = tracks.find((track) => track["@type"] === "General") || {};
-    const video = tracks.find((track) => track["@type"] === "Video") || null;
-    const audio = tracks.find((track) => track["@type"] === "Audio") || null;
-
-    return {
-      generalFormat: general.Format || "",
-      videoFormat: video?.Format || "",
-      videoCodecId: video?.CodecID || "",
-      audioFormat: audio?.Format || "",
-      audioCodecId: audio?.CodecID || "",
-    };
-  } finally {
-    if (mediaInfo) mediaInfo.close();
-    if (fileHandle) await fileHandle.close();
-  }
-}
-
-function canFastRemuxToMp4(mediaInfo) {
-  const videoFormat = `${mediaInfo.videoFormat} ${mediaInfo.videoCodecId}`.toLowerCase();
-  const audioFormat = `${mediaInfo.audioFormat} ${mediaInfo.audioCodecId}`.toLowerCase();
-  const videoOk = !mediaInfo.videoFormat || /avc|h\.?264/.test(videoFormat);
-  const audioOk = !mediaInfo.audioFormat || /aac|mp3|mpeg audio/.test(audioFormat);
-  return videoOk && audioOk;
-}
-
-async function runFfmpeg(args, statusMessage) {
-  const execa = await getExeca();
-  if (mainWindow) {
-    mainWindow.webContents.send("transcode-status", statusMessage);
-  }
-
-  log.info(`Running FFmpeg: ${FFMPEG_PATH} ${args.join(" ")}`);
-  await execa(FFMPEG_PATH, args, { all: true });
-
-  if (mainWindow) {
-    mainWindow.webContents.send("transcode-progress", 100);
-  }
-}
-
-async function interceptAndFixAudio(filePath: string): Promise<string> {
-  return new Promise<string>((resolve) => {
-    log.info(`Agent probing file: ${filePath}`);
-    
-    if (mainWindow) {
-      mainWindow.webContents.send("transcode-status", "Probing media file...");
-    }
-    
-    ffmpeg.ffprobe(filePath, (err: any, metadata: any) => {
-      if (err) {
-        log.error("Agent Warning - Probe failed. Passing raw file:", err.message);
-        if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
-        return resolve(`file:///${filePath.replace(/\\/g, '/')}`);
-      }
-
-      const audioStream = metadata.streams && metadata.streams.find((s: any) => s.codec_type === 'audio');
-      const videoStream = metadata.streams && metadata.streams.find((s: any) => s.codec_type === 'video');
-
-      const safeAudioCodecs = ['aac', 'opus', 'vorbis', 'flac', 'mp3', 'wav', 'pcm_s16le'];
-      const safeVideoCodecs = ['h264', 'vp8', 'vp9', 'av1', 'hevc'];
-
-      const isAudioSafe = !audioStream || safeAudioCodecs.includes(audioStream.codec_name);
-      const isVideoSafe = !videoStream || safeVideoCodecs.includes(videoStream.codec_name);
-
-      const extension = path.extname(filePath).toLowerCase();
-      const isNativeContainer = BROWSER_NATIVE_EXTENSIONS.has(extension);
-
-      // Case 3: Fully safe & browser-native container. Play directly!
-      if (isAudioSafe && isVideoSafe && isNativeContainer) {
-        log.info(`Media is natively compatible. Bypassing transcode...`);
-        if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
-        return resolve(`file:///${filePath.replace(/\\/g, '/')}`); 
-      }
-
-      // Check if we need same-directory FLAC transcode (Case 1) or temp-directory remux/conversion (Case 2)
-      let outputPath = "";
-      let tempOutputPath = "";
-      let options: string[] = [];
-      let isRemux = false;
-
-      if (!isAudioSafe) {
-        // Case 1: Audio is unsupported. We do fast FLAC transcode to same directory.
-        log.info(`Unsupported audio (${audioStream.codec_name}) detected. Engaging MAX-SPEED FLAC transcode...`);
-        if (mainWindow) {
-          mainWindow.webContents.send("transcode-status", "Optimizing audio format for player...");
-        }
-        const parsedPath = path.parse(filePath);
-        outputPath = path.join(parsedPath.dir, `${parsedPath.name}_FIXED.mp4`);
-        tempOutputPath = outputPath + ".tmp";
-        
-        options = [
-          '-c:v copy',             // Preserve HEVC/H264 losslessly
-          '-tag:v hvc1',           // Electron HEVC visibility
-          '-c:a flac',             // Fastest possible transcode
-          '-compression_level 0',  // Max CPU speed
-          '-threads 0',            // Multi-threading enabled
-          '-ac 6',                 // Preserve 5.1 surround
-          '-movflags +faststart'   // Puts MP4 MOOV atom at the front
-        ];
-      } else {
-        // Case 2: Audio is safe, but container or video codec is browser-hostile.
-        // We transcode/remux to temp directory.
-        isRemux = isVideoSafe; // if video is also safe, we can just remux (copy streams)
-        const suffix = isRemux ? "remuxed" : "converted";
-        outputPath = getCompatibilityOutputPath(filePath, suffix);
-        tempOutputPath = outputPath + ".tmp";
-
-        if (mainWindow) {
-          mainWindow.webContents.send("transcode-status", isRemux ? "Remuxing media for player..." : "Converting media format...");
-        }
-
-        if (isRemux) {
-          log.info(`Browser-hostile container (${extension}) but safe streams detected. Remuxing to MP4...`);
-          options = [
-            '-c:v copy',
-            '-c:a copy',
-            '-movflags +faststart'
-          ];
-        } else {
-          log.info(`Unsupported video codec (${videoStream?.codec_name || 'unknown'}) detected. Converting to H.264/AAC MP4...`);
-          options = [
-            '-c:v libx264',
-            '-preset veryfast',
-            '-crf 23',
-            '-pix_fmt yuv420p',
-            '-c:a aac',
-            '-b:a 192k',
-            '-movflags +faststart'
-          ];
-        }
-      }
-
-      const browserSafeOutputPath = `file:///${outputPath.replace(/\\/g, '/')}`;
-
-      // Check if output file already exists
-      fs.stat(outputPath)
-        .then((stat: any) => {
-          if (stat.size > 0) {
-            log.info("Output file already exists, using cached copy:", outputPath);
-            if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
-            return resolve(browserSafeOutputPath);
-          }
-        })
-        .catch(async () => {
-          // Ensure temp directory exists if we are writing to temp cache
-          if (outputPath.includes("ffinflow-media-cache")) {
-            await fs.mkdir(path.dirname(outputPath), { recursive: true }).catch(() => {});
-          }
-
-          // File does not exist, proceed with transcoding
-          const command = ffmpeg(filePath);
-          
-          command.format('mp4').outputOptions(options)
-            .on('start', (cmd: string) => log.info('Executing FFmpeg command:', cmd))
-            .on('progress', (progress: any) => {
-               if (progress.percent) {
-                 const percent = Math.floor(progress.percent);
-                 log.debug(`FFmpeg Progress: ${percent}% done`);
-                 if (mainWindow) {
-                   mainWindow.webContents.send('transcode-progress', percent);
-                 }
-               }
-            })
-            .on('error', (e: any) => {
-              log.error("FFmpeg execution failed:", e.message);
-              // Clean up the temp file
-              fs.unlink(tempOutputPath).catch(() => {});
-              if (mainWindow) mainWindow.webContents.send("transcode-complete", true);
-              resolve(`file:///${filePath.replace(/\\/g, '/')}`);
-            })
-            .on('end', () => {
-              // Rename the temp file to the final output file upon successful completion
-              fs.rename(tempOutputPath, outputPath)
-                .then(() => {
-                  log.info(`Processing complete. File saved to: ${outputPath}`);
-                  if (mainWindow) mainWindow.webContents.send('transcode-complete', true);
-                  resolve(browserSafeOutputPath);
-                })
-                .catch((renameErr: any) => {
-                  log.error("Rename failed:", renameErr.message);
-                  resolve(`file:///${filePath.replace(/\\/g, '/')}`);
-                });
-            })
-            .save(tempOutputPath); // Write to the temp file first!
-        });
-    });
+async function interceptAndFixAudio(input: unknown): Promise<string> {
+  if (typeof input !== "string" || !input.trim()) throw new Error("A media file path is required.");
+  const filePath: string = path.resolve(normalizeMediaPath(input));
+  const request = ++preparationRequest;
+  activePreparationPath = filePath;
+  preparationService ??= new MediaPreparationService({
+    ffmpegPath: FFMPEG_PATH,
+    ffprobePath: FFPROBE_PATH,
+    cacheDirectory: path.join(app.getPath("temp"), "ffinflow-media-cache"),
+    onEvent: (event, sourcePath) => {
+      if (!mainWindow || mainWindow.isDestroyed() || activePreparationPath !== sourcePath) return;
+      if (event.type === "status") mainWindow.webContents.send("transcode-status", event.message);
+      else mainWindow.webContents.send("transcode-progress", event.percent);
+    },
   });
+  try {
+    return await preparationService.prepare(filePath);
+  } catch (error) {
+    log.error("Media preparation failed:", error);
+    throw error;
+  } finally {
+    if (request === preparationRequest && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send("transcode-complete", true);
+  }
 }
+
+app.on("before-quit", () => preparationService?.dispose());
 
 // ==============================================================================
 // AGENT: OS-LEVEL INTAKE ROUTING
