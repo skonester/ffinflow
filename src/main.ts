@@ -485,4 +485,76 @@ ipcMain.on("toggle-menu-bar", (_, show) => {
     mainWindow.setAutoHideMenuBar(!show);
   }
 });
+
+// ==============================================================================
+// AGENT: USER-INITIATED FORMAT CONVERSION
+// ==============================================================================
+// Reuses the ffmpeg binary already bundled with the app (FFMPEG_PATH above)
+// instead of pulling in a separate copy, so conversion works the same in dev
+// and in packaged builds with no extra download step.
+const CONVERT_OUTPUT_CODECS = {
+  mp4: { videoCodec: "libx264", audioCodec: "aac" },
+  mkv: { videoCodec: "libx264", audioCodec: "aac" },
+  "mkv-av1": { videoCodec: "libsvtav1", audioCodec: "libopus" },
+  mov: { videoCodec: "libx264", audioCodec: "aac" },
+  mp3: { audioCodec: "libmp3lame", audioOnly: true },
+  wav: { audioCodec: "pcm_s16le", audioOnly: true },
+  ogg: { audioCodec: "libvorbis", audioOnly: true },
+  flac: { audioCodec: "flac", audioOnly: true },
+  m4a: { audioCodec: "aac", audioOnly: true },
+  aac: { audioCodec: "aac", audioOnly: true },
+};
+
+let activeConvertCommand = null;
+
+function convertMedia(inputPath, outputPath, format): Promise<void> {
+  const settings = CONVERT_OUTPUT_CODECS[format];
+  if (!settings) return Promise.reject(new Error(`Unsupported output format: ${format}`));
+
+  return new Promise<void>((resolve, reject) => {
+    const command = ffmpeg(toFfprobePath(inputPath));
+    if (settings.audioOnly) command.noVideo();
+    else command.videoCodec(settings.videoCodec);
+    command.audioCodec(settings.audioCodec);
+
+    activeConvertCommand = command;
+    command
+      .on("progress", (progress) => {
+        if (!mainWindow) return;
+        const percent = Number(progress.percent);
+        if (Number.isFinite(percent)) mainWindow.webContents.send("convert-progress", Math.max(0, Math.min(99, Math.round(percent))));
+      })
+      .on("end", () => {
+        activeConvertCommand = null;
+        resolve();
+      })
+      .on("error", (err) => {
+        activeConvertCommand = null;
+        reject(err);
+      })
+      .save(outputPath);
+  });
+}
+
+ipcMain.handle("convert-select-output", async (_, defaultName) => {
+  if (!mainWindow) return null;
+  const result = await dialog.showSaveDialog(mainWindow, { defaultPath: defaultName });
+  return result.canceled ? null : result.filePath;
+});
+
+ipcMain.handle("convert-media", async (_, inputPath, outputPath, format) => {
+  try {
+    await convertMedia(normalizeMediaPath(inputPath), outputPath, format);
+    if (mainWindow) mainWindow.webContents.send("convert-progress", 100);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error instanceof Error ? error.message : String(error) };
+  }
+});
+
+ipcMain.on("convert-cancel", () => {
+  activeConvertCommand?.kill("SIGKILL");
+  activeConvertCommand = null;
+});
+
 export {};

@@ -38,6 +38,12 @@ const createMenuTemplate = (mainWindow, updateCheckState = { manual: false }) =>
             },
             { type: 'separator' },
             {
+                label: 'Convert Media...',
+                accelerator: 'CmdOrCtrl+Shift+V',
+                click: () => mainWindow.webContents.send('menu-convert-file')
+            },
+            { type: 'separator' },
+            {
                 label: 'Exit',
                 accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Alt+F4',
                 click: () => app.quit()

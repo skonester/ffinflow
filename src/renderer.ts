@@ -1934,4 +1934,271 @@ document.addEventListener("DOMContentLoaded", () => {
 
 // --- End: Themed App Dialog ---
 
+// --- Start: Convert Media Dialog ---
+// Lets the user transcode a file to a different container/codec using the
+// ffmpeg binary already bundled with the app (see FFMPEG_PATH in main.ts) --
+// no separate download or bundled copy required.
+
+const CONVERT_VIDEO_FORMATS = [
+    { value: 'mp4', label: 'MP4 Video', extension: 'mp4', description: 'H.264 + AAC — plays everywhere, the safest choice for sharing.' },
+    { value: 'mkv', label: 'MKV Video', extension: 'mkv', description: 'H.264 + AAC — same codecs as MP4, a more flexible container (multiple audio/subtitle tracks).' },
+    { value: 'mkv-av1', label: 'MKV Video (AV1)', extension: 'mkv', description: 'AV1 + Opus — modern, royalty-free, noticeably smaller files. Needs a fairly recent player/device.' },
+    { value: 'mov', label: 'MOV Video', extension: 'mov', description: 'H.264 + AAC — QuickTime container, what iPhones and mobile editors (CapCut, etc.) export natively.' },
+];
+const CONVERT_AUDIO_FORMATS = [
+    { value: 'mp3', label: 'MP3 Audio', extension: 'mp3', description: 'The universal standard — plays on literally everything, small files.' },
+    { value: 'wav', label: 'WAV Audio', extension: 'wav', description: 'Uncompressed — largest files, exact quality, best for editing.' },
+    { value: 'ogg', label: 'OGG Audio', extension: 'ogg', description: 'Vorbis — open-source alternative to MP3, similar quality and size.' },
+    { value: 'flac', label: 'FLAC Audio', extension: 'flac', description: 'Lossless compression — smaller than WAV with no quality loss.' },
+    { value: 'm4a', label: 'M4A Audio', extension: 'm4a', description: 'AAC in an MP4 wrapper — what Apple devices use by default.' },
+    { value: 'aac', label: 'AAC Audio', extension: 'aac', description: 'Better quality than MP3 at the same file size.' },
+];
+const CONVERT_AUDIO_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg', '.aac', '.m4a', '.flac', '.wma', '.opus']);
+
+document.addEventListener("DOMContentLoaded", () => {
+    const overlay = document.createElement('div');
+    overlay.id = 'convert-dialog-overlay';
+    Object.assign(overlay.style, {
+        position: 'fixed',
+        inset: '0',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        zIndex: '10000',
+        display: 'none',
+        alignItems: 'center',
+        justifyContent: 'center'
+    });
+
+    const box = document.createElement('div');
+    Object.assign(box.style, {
+        background: 'var(--bg-dark, #232323)',
+        color: 'var(--text-color, #e0e0e0)',
+        borderRadius: '10px',
+        padding: '24px 28px',
+        maxWidth: '440px',
+        width: '90%',
+        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        textAlign: 'left'
+    });
+
+    const titleEl = document.createElement('h2');
+    titleEl.innerText = 'Convert Media';
+    Object.assign(titleEl.style, { margin: '0 0 16px', color: 'var(--primary-color, #ff6600)', fontSize: '17px' });
+
+    const messageEl = document.createElement('p');
+    Object.assign(messageEl.style, { margin: '0 0 14px', fontSize: '13px', display: 'none', whiteSpace: 'pre-line' });
+
+    function fieldLabel(text) {
+        const label = document.createElement('label');
+        label.innerText = text;
+        Object.assign(label.style, { display: 'block', fontSize: '12px', color: 'rgba(255, 255, 255, 0.65)', margin: '0 0 6px' });
+        return label;
+    }
+
+    const inputRow = document.createElement('div');
+    Object.assign(inputRow.style, { display: 'flex', gap: '8px', marginBottom: '14px' });
+    const inputPathEl = document.createElement('div');
+    Object.assign(inputPathEl.style, {
+        flex: '1', padding: '7px 10px', borderRadius: '5px', fontSize: '13px',
+        background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: '0'
+    });
+    inputPathEl.innerText = 'No file selected';
+    const browseBtn = document.createElement('button');
+    browseBtn.innerText = 'Browse';
+    Object.assign(browseBtn.style, {
+        padding: '7px 14px', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '5px',
+        background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-color, #e0e0e0)', cursor: 'pointer', fontSize: '13px'
+    });
+    inputRow.appendChild(inputPathEl);
+    inputRow.appendChild(browseBtn);
+
+    const formatSelect = document.createElement('select');
+    Object.assign(formatSelect.style, {
+        width: '100%', padding: '7px 10px', borderRadius: '5px', fontSize: '13px', marginBottom: '8px',
+        background: '#1a1a1a', border: '1px solid rgba(255, 255, 255, 0.1)', color: 'var(--text-color, #e0e0e0)',
+        colorScheme: 'dark'
+    });
+
+    const formatDescriptionEl = document.createElement('div');
+    Object.assign(formatDescriptionEl.style, { fontSize: '12px', color: 'rgba(255, 255, 255, 0.55)', marginBottom: '18px', lineHeight: '1.4' });
+
+    const progressWrap = document.createElement('div');
+    Object.assign(progressWrap.style, { display: 'none', marginBottom: '14px' });
+    const progressLabel = document.createElement('div');
+    Object.assign(progressLabel.style, { fontSize: '12px', marginBottom: '6px', color: 'rgba(255, 255, 255, 0.65)' });
+    const progressTrack = document.createElement('div');
+    Object.assign(progressTrack.style, { height: '6px', borderRadius: '3px', background: 'rgba(255, 255, 255, 0.1)', overflow: 'hidden' });
+    const progressBar = document.createElement('div');
+    Object.assign(progressBar.style, { height: '100%', width: '0%', background: 'var(--primary-color, #ff6600)', transition: 'width 0.2s ease' });
+    progressTrack.appendChild(progressBar);
+    progressWrap.appendChild(progressLabel);
+    progressWrap.appendChild(progressTrack);
+
+    const buttonRow = document.createElement('div');
+    Object.assign(buttonRow.style, { display: 'flex', gap: '10px', justifyContent: 'flex-end' });
+    const cancelBtn = document.createElement('button');
+    cancelBtn.innerText = 'Cancel';
+    Object.assign(cancelBtn.style, {
+        padding: '8px 16px', border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '5px',
+        background: 'rgba(255, 255, 255, 0.05)', color: 'var(--text-color, #e0e0e0)', cursor: 'pointer', fontSize: '13px'
+    });
+    const convertBtn = document.createElement('button');
+    convertBtn.innerText = 'Convert';
+    Object.assign(convertBtn.style, {
+        padding: '8px 16px', border: '1px solid var(--primary-color, #ff6600)', borderRadius: '5px',
+        background: 'var(--primary-color, #ff6600)', color: '#fff', cursor: 'pointer', fontSize: '13px'
+    });
+    buttonRow.appendChild(cancelBtn);
+    buttonRow.appendChild(convertBtn);
+
+    box.appendChild(titleEl);
+    box.appendChild(messageEl);
+    box.appendChild(fieldLabel('Input File'));
+    box.appendChild(inputRow);
+    box.appendChild(fieldLabel('Output Format'));
+    box.appendChild(formatSelect);
+    box.appendChild(formatDescriptionEl);
+    box.appendChild(progressWrap);
+    box.appendChild(buttonRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    let inputPath = null;
+    let converting = false;
+
+    function showMessage(text, isError) {
+        messageEl.innerText = text || '';
+        messageEl.style.display = text ? 'block' : 'none';
+        messageEl.style.color = isError ? '#ff6666' : '#7ee787';
+    }
+
+    function currentFormats() {
+        const ext = inputPath ? path.extname(inputPath).toLowerCase() : '';
+        return CONVERT_AUDIO_EXTENSIONS.has(ext) ? CONVERT_AUDIO_FORMATS : CONVERT_VIDEO_FORMATS;
+    }
+
+    function updateFormatDescription() {
+        const match = currentFormats().find((f) => f.value === formatSelect.value);
+        formatDescriptionEl.innerText = match ? match.description : '';
+    }
+
+    function populateFormats() {
+        const formats = currentFormats();
+        formatSelect.innerHTML = '';
+        formats.forEach((format) => {
+            const option = document.createElement('option');
+            option.value = format.value;
+            option.innerText = format.label;
+            // Native <option> popups don't inherit page CSS on Windows/Chromium
+            // unless colored explicitly -- left default this rendered as a
+            // jarring white list inside an otherwise dark app.
+            Object.assign(option.style, { background: '#1a1a1a', color: '#e0e0e0' });
+            formatSelect.appendChild(option);
+        });
+        updateFormatDescription();
+    }
+
+    function updateConvertButtonState() {
+        const disabled = converting || !inputPath;
+        convertBtn.disabled = disabled;
+        convertBtn.style.opacity = disabled ? '0.5' : '1';
+        convertBtn.style.cursor = disabled ? 'not-allowed' : 'pointer';
+    }
+
+    function setInputPath(newPath) {
+        inputPath = newPath;
+        inputPathEl.innerText = newPath ? path.basename(newPath) : 'No file selected';
+        populateFormats();
+        updateConvertButtonState();
+    }
+
+    function setConverting(active) {
+        converting = active;
+        browseBtn.disabled = active;
+        formatSelect.disabled = active;
+        updateConvertButtonState();
+        progressWrap.style.display = active ? 'block' : 'none';
+        cancelBtn.innerText = active ? 'Stop' : 'Cancel';
+        if (active) {
+            progressBar.style.width = '0%';
+            progressLabel.innerText = 'Converting... 0%';
+        }
+    }
+
+    function closeConvertDialog() {
+        if (converting) {
+            ipcRenderer.send('convert-cancel');
+        }
+        overlay.style.display = 'none';
+        setConverting(false);
+    }
+
+    formatSelect.addEventListener('change', updateFormatDescription);
+
+    browseBtn.addEventListener('click', async () => {
+        const paths = await ipcRenderer.invoke('open-files');
+        if (paths && paths.length > 0) {
+            setInputPath(paths[0]);
+            showMessage('', false);
+        }
+    });
+
+    convertBtn.addEventListener('click', async () => {
+        if (!inputPath || converting) return;
+        const format = formatSelect.value;
+        const extension = currentFormats().find((f) => f.value === format)?.extension || format;
+        const baseName = path.basename(inputPath).replace(/\.[^.]+$/, '');
+        const defaultName = `${baseName}_converted.${extension}`;
+
+        const outputPath = await ipcRenderer.invoke('convert-select-output', defaultName);
+        if (!outputPath) return;
+
+        showMessage('', false);
+        setConverting(true);
+
+        try {
+            const result = await ipcRenderer.invoke('convert-media', inputPath, outputPath, format);
+            if (result.success) {
+                showMessage(`Converted successfully to ${path.basename(outputPath)}`, false);
+                shell.showItemInFolder(outputPath);
+            } else {
+                showMessage(result.error || 'Conversion failed', true);
+            }
+        } catch (e) {
+            showMessage(e instanceof Error ? e.message : 'Conversion failed', true);
+        } finally {
+            setConverting(false);
+        }
+    });
+
+    cancelBtn.addEventListener('click', closeConvertDialog);
+
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay && !converting) closeConvertDialog();
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (overlay.style.display === 'flex' && e.key === 'Escape' && !converting) closeConvertDialog();
+    });
+
+    ipcRenderer.on('convert-progress', (_event, percent) => {
+        if (!converting) return;
+        const clamped = Math.max(0, Math.min(100, Math.round(percent)));
+        progressBar.style.width = `${clamped}%`;
+        progressLabel.innerText = `Converting... ${clamped}%`;
+    });
+
+    ipcRenderer.on('menu-convert-file', () => {
+        showMessage('', false);
+        setConverting(false);
+        const current = currentIndex !== -1 && playlist[currentIndex] ? playlist[currentIndex].path : null;
+        setInputPath(current);
+        overlay.style.display = 'flex';
+    });
+});
+
+// --- End: Convert Media Dialog ---
+
 export {};
