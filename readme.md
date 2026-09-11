@@ -7,7 +7,7 @@
 
   <a href="https://github.com/skonester/ffinflow/releases/latest"><img src="https://img.shields.io/github/v/release/skonester/ffinflow?label=Latest%20Release&style=flat-square" alt="Latest Release" /></a>
   <a href="https://github.com/skonester/ffinflow/releases/latest"><img src="https://img.shields.io/github/downloads/skonester/ffinflow/total?label=Downloads&style=flat-square" alt="Total Downloads" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/skonester/ffinflow?label=License&style=flat-square" alt="License" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-GPL--3.0-red?style=flat-square" alt="GPLv3 License" /></a>
   <a href="https://github.com/skonester/ffinflow/releases/latest"><img src="https://img.shields.io/badge/Platform-Windows-blue?style=flat-square" alt="Platform" /></a>
 
   <br/><br/>
