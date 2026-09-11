@@ -12,6 +12,7 @@
 
   <br/><br/>
 
+  <img src="GPL3.png" alt="GPLv3" />
   <a href="https://github.com/skonester/ffinflow/releases/latest">
     <img src="https://img.shields.io/badge/Download-ffinflow%20for%20Windows-0078d4?style=for-the-badge&logo=windows&logoColor=white" alt="Download ffinflow for Windows" />
   </a>
