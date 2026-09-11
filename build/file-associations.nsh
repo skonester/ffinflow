@@ -9,7 +9,7 @@
   !define FFINFLOW_REG_BASE "Software"
 !endif
 
-!macro FFinflowExtensions ACTION
+!macro FFinflowVideoExtensions ACTION
   !insertmacro ${ACTION} ".mp4" "Video"
   !insertmacro ${ACTION} ".mkv" "Video"
   !insertmacro ${ACTION} ".avi" "Video"
@@ -20,6 +20,9 @@
   !insertmacro ${ACTION} ".wmv" "Video"
   !insertmacro ${ACTION} ".ts" "Video"
   !insertmacro ${ACTION} ".m4v" "Video"
+!macroend
+
+!macro FFinflowAudioExtensions ACTION
   !insertmacro ${ACTION} ".mp3" "Audio"
   !insertmacro ${ACTION} ".wav" "Audio"
   !insertmacro ${ACTION} ".ogg" "Audio"
@@ -28,6 +31,11 @@
   !insertmacro ${ACTION} ".flac" "Audio"
   !insertmacro ${ACTION} ".wma" "Audio"
   !insertmacro ${ACTION} ".opus" "Audio"
+!macroend
+
+!macro FFinflowExtensions ACTION
+  !insertmacro FFinflowVideoExtensions ${ACTION}
+  !insertmacro FFinflowAudioExtensions ${ACTION}
 !macroend
 
 !macro FFinflowRegisterExtension EXT TYPE
@@ -46,7 +54,9 @@
   WriteRegStr ${FFINFLOW_REG_ROOT} "${FFINFLOW_REG_BASE}\Classes\ffinflow.${TYPE}\shell\play\command" "" '"$INSTDIR\${APP_EXECUTABLE_FILENAME}" "%1"'
 !macroend
 
-!macro FFinflowRegisterAssociations
+; App-level registration (App Paths, Capabilities, ProgIDs) that should exist
+; regardless of which extension categories the user opted into.
+!macro FFinflowRegisterAppCapabilities
   WriteRegStr ${FFINFLOW_REG_ROOT} "${FFINFLOW_REG_BASE}\Microsoft\Windows\CurrentVersion\App Paths\${APP_EXECUTABLE_FILENAME}" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
   WriteRegStr ${FFINFLOW_REG_ROOT} "${FFINFLOW_REG_BASE}\ffinflow\Capabilities" "ApplicationName" "ffinflow"
   WriteRegStr ${FFINFLOW_REG_ROOT} "${FFINFLOW_REG_BASE}\ffinflow\Capabilities" "ApplicationDescription" "ffinflow video and audio player"
@@ -60,6 +70,10 @@
   !insertmacro FFinflowRegisterType "Audio"
   ; Keep the old ProgID working for users who already selected it in Windows.
   !insertmacro FFinflowRegisterType "AssocFile"
+!macroend
+
+!macro FFinflowRegisterAssociations
+  !insertmacro FFinflowRegisterAppCapabilities
   !insertmacro FFinflowExtensions FFinflowRegisterExtension
   System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
 !macroend

@@ -20,405 +20,59 @@
 
 # ffinflow
 
-ffinflow is a desktop media player for Windows built on Electron with an integrated FFmpeg transcoding engine. It plays local video and audio files using a traditional, menu-driven interface with static playback controls that remain visible at all times.
+A no-nonsense desktop media player for Windows with a classic, always-visible control layout and a built-in FFmpeg engine that transcodes whatever Chromium can't play natively — HEVC, E-AC3, DTS, oddball MKVs, and more.
 
-The application is written in TypeScript, compiled to JavaScript, and packaged as a native Windows installer.
-
-> ffinflow is an independent, open-source project. It is not affiliated with, endorsed by, or connected to Microsoft, Windows Media Player, or any Microsoft product. The interface design draws inspiration from the straightforward layout of classic desktop media players, but ffinflow is its own application with its own codebase and its own media backend.
+> Independent open-source project. Not affiliated with Microsoft or Windows Media Player — just inspired by that simple, no-gestures-required layout.
 
 ---
 
-## Why This Exists
-
-Most modern media players fall into one of two categories: minimal single-purpose players that break on anything beyond MP4/H.264, or heavyweight applications loaded with library management, streaming integration, and interface layers that obscure basic playback controls.
-
-ffinflow occupies the middle ground. It is a local-file media player with a traditional desktop layout -- top menu bar, static buttons, a playlist sidebar, and a video surface -- combined with a real transcoding backend that can handle files the browser engine alone cannot play.
-
-The design takes inspiration from the classic Windows Media Player Legacy experience: open a file, see the video, use obvious controls, manage a playlist. That workflow still works, and ffinflow preserves it. But modern local media has grown more complex. MKV containers, HEVC/H.265 video, E-AC3 and DTS surround audio, embedded subtitle tracks in multiple languages, and uncommon container formats like FLV all require tooling that legacy players were never designed to provide.
-
-ffinflow was built to solve that gap without introducing unnecessary complexity. It is not a clone or replacement for any existing player. It is an independent application that borrows a familiar control layout and pairs it with a modern media processing backend.
-
----
-
-## TypeScript and Portability
-
-The codebase was originally written in JavaScript and has since been fully transitioned to TypeScript. The migration was done for long-term maintainability: explicit types make the relationship between the main process, the renderer process, and the various sub-modules easier to follow, especially for anyone reading the code for the first time. The compiled output is still plain CommonJS JavaScript that Electron loads directly, so the runtime behavior is identical.
-
-The author primarily uses Windows, which is why ffinflow ships as a Windows installer and why the current build pipeline targets NSIS. However, the application was deliberately built on Electron, HTML, CSS, and FFmpeg rather than on Windows-specific frameworks like WPF, WinUI, or UWP. Nothing in the core player logic, transcoding engine, subtitle system, or UI layer depends on Windows APIs. The only platform-specific pieces are the FFmpeg binary paths (which already branch between packaged and development modes), the NSIS installer script for file associations, and the single-instance lock that checks for `win32`.
-
-This means the codebase is structured so that someone who wants to run ffinflow on macOS or Linux could do so by:
-
-- Swapping in platform-appropriate FFmpeg and FFprobe binaries.
-- Adjusting the binary path resolution in `main.ts` (replacing `.exe` references).
-- Replacing the NSIS installer configuration with a DMG or AppImage target in the Electron Builder config.
-- Removing or adapting the Windows registry file association logic.
-
-The core application -- the player, the transcoding pipeline, the playlist, the subtitle engine, the themes, the keyboard shortcuts, the media info overlay -- would not need to change.
-
-This was an intentional design decision. By staying on web technologies and avoiding platform-locked toolkits, ffinflow remains a project that other developers can fork, port, or pull individual pieces from. If someone wants the transcoding engine without the UI, or the subtitle extraction logic for a different player, or the FFprobe-based compatibility routing for their own Electron app, those components are self-contained and written in standard TypeScript.
-
----
-
-## Transcoding Engine
-
-The motivating case is E-AC3 (Dolby Digital Plus) audio that can be silent in Electron. The pipeline probes every playable audio/video stream and chooses a typed preparation plan. Codec policy and FFmpeg execution are independent of Electron.
-
-### Direct Playback
-
-When every playable audio/video stream matches its container-specific compatibility policy, the original file is played without conversion. Examples include H.264/AAC MP4 and VP8/Vorbis WebM. Probing still occurs. Codec names alone do not guarantee playback on every PC: HEVC support, profiles, bit depth, and hardware decoding depend on the Electron build and machine.
-
-### Audio Transcoding (Lossless Video Copy)
-
-When video is compatible with MP4 playback but audio is not, unsupported audio tracks such as E-AC3, AC-3, DTS, or TrueHD are converted to FLAC. Compatible video and audio tracks are copied. Every playable audio/video stream is explicitly mapped, including secondary audio tracks.
-
-Video copying preserves compressed video data and resolution, including 8K, without scaling or video re-encoding. FLAC uses compression level zero for speed. Input channel counts are retained instead of forcing stereo or 7.1 into 5.1. Only copied HEVC video receives the hvc1 tag. FLAC preserves decoded samples within the selected PCM precision; it cannot restore information lost in a lossy source or retain object-audio metadata such as Atmos.
-
-### Container Remuxing and Video Conversion
-
-- Compatible streams in a non-native container are remuxed to MP4. Time depends on file size and storage speed.
-- Compatible video with incompatible audio uses the audio-conversion path above.
-- Incompatible video streams are converted to H.264 using the veryfast x264 preset, with AAC audio. Other compatible video tracks remain copied. Video and audio compatibility are evaluated independently.
-- VP8/Vorbis WebM can play directly, but those codecs are not blindly copied into MP4 from other containers.
-
-### Cache, Validation, and Failures
-
-All prepared outputs now live in the system temporary directory under ffinflow-media-cache, instead of beside the original as <filename>_FIXED.mp4. This avoids source-folder write requirements and filename collisions. Existing _FIXED.mp4 files are untouched and are not automatically trusted as cache entries.
-
-Cache identity includes source path, size, modification time, and preparation policy. Repeated requests for the same active source share one job. Cached output requires a matching manifest and successful stream validation. Empty, changed, or invalid entries are rebuilt.
-
-New output goes to a unique temporary file, is probed for expected streams, codecs, copied video dimensions, and channel counts, then is renamed into place. If the source changes during conversion, preparation fails. Errors are reported instead of silently retrying the incompatible source. Playback waits for preparation and validation to finish; faststart optimizes the completed MP4 layout, not playback during conversion.
-
-FFmpeg runs directly with argument arrays, bounded log capture, progress reporting, a 60-second probe timeout, and a six-hour conversion timeout. App shutdown cancels active jobs. Normal failure cleanup removes owned temporary files. Forced termination can leave temporary artifacts, which are never valid cache entries. There is currently no automatic cache eviction or size limit; the cache can be cleared with the player closed.
-
-Subtitles, attachments, and cover art are not muxed into prepared playback files. Subtitle discovery, media information, and resume lookup use the original source. Rapid file changes and Stop invalidate pending playback requests so an older conversion cannot start playing over a newer selection. Superseded conversions may finish and populate the cache.
-
----
-## Player Interface
-
-The interface uses a fixed layout with no hidden controls or gesture-dependent interactions.
-
-### Static Control Bar
-
-The bottom control bar contains the following buttons, always visible:
-
-- Previous track
-- Play / Pause
-- Next track
-- Volume slider and mute toggle
-- Shuffle toggle
-- Repeat toggle (playlist repeat and single-track loop)
-- Playback speed selector (0.5x, 1.0x, 1.25x, 1.5x, 2.0x)
-- Fullscreen toggle
-- Playlist panel toggle
-
-A time slider with hover-preview timestamps and smooth seeking sits above the control buttons. Elapsed and total duration are displayed as a running counter.
-
-### Playlist Sidebar
-
-The right-side playlist panel shows all loaded files with drag-and-drop reordering. The currently playing track is highlighted. A clear button at the top empties the playlist. The panel can be toggled on and off with the sidebar button or by pressing T.
-
-### Video Surface
-
-The center of the window is a video surface that responds to single-click for play/pause and double-click for fullscreen. Mouse inactivity hides the cursor and control bar during fullscreen playback.
-
-### Media Info Overlay
-
-Pressing I or selecting Toggle Media Info from the View menu displays a heads-up overlay on the video surface showing container format, duration, bitrate, video codec details (resolution, frame rate, pixel format, profile), audio stream details (codec, channels, sample rate, bitrate), and subtitle stream listings. The overlay refreshes every second with the current playback state.
-
----
-
-## Desktop Menus
-
-All player functions are accessible through the native desktop menu bar.
-
-### File
-
-| Action | Shortcut |
-| :--- | :--- |
-| Open Files | Ctrl+O |
-| Open Folder | Ctrl+Shift+O |
-| Clear Playlist | Ctrl+Shift+C |
-| Exit | Alt+F4 |
-
-### View
-
-| Action | Shortcut |
-| :--- | :--- |
-| Toggle Media Info | I |
-| Change Theme | (submenu) |
-
-### Playback
-
-| Action | Shortcut |
-| :--- | :--- |
-| Play / Pause | Space |
-| Stop | Ctrl+. |
-| Previous | Ctrl+Left |
-| Next | Ctrl+Right |
-| Rewind 10 Seconds | Left |
-| Fast Forward 10 Seconds | Right |
-| Shuffle | S |
-| Repeat | L |
-| Play Speed | (submenu) |
-| Mute | M |
-| Volume Up | Up |
-| Volume Down | Down |
-| Toggle Fullscreen | F |
-
-### Help
-
-- Remember Playback Position (checkbox)
-- Hardware Acceleration (checkbox, requires restart)
-- Release Notes
-- Keyboard Shortcuts
-- Check for Updates
-- About
-
----
-
-## Keyboard Shortcuts
-
-| Key | Action |
-| :--- | :--- |
-| Space | Play / Pause |
-| F | Toggle fullscreen |
-| Escape | Exit fullscreen |
-| Left | Rewind 10 seconds |
-| Right | Fast forward 10 seconds |
-| Ctrl+Left | Previous track |
-| Ctrl+Right | Next track |
-| Up | Volume up |
-| Down | Volume down |
-| M | Mute / unmute |
-| S | Toggle shuffle |
-| L | Toggle repeat |
-| I | Toggle media info overlay |
-| T | Toggle playlist panel |
-| [ | Subtitle delay -0.1s |
-| ] | Subtitle delay +0.1s |
-| \ | Reset subtitle delay |
-| 0-9 | Seek to 0%-90% of duration |
-
----
-
-## Subtitle Support
-
-ffinflow handles both external and embedded subtitle files.
-
-- External subtitle files (.srt, .vtt, .ass, .ssa, .sub) are auto-detected in the same directory as the media file and loaded automatically.
-- External subtitle files can also be loaded manually through the file dialog.
-- Embedded subtitle streams inside MKV and other containers are detected via FFprobe and extracted to temporary VTT files for rendering.
-- Subtitle timing can be adjusted in real time using the bracket keys, and reset with the backslash key.
-
----
-
-## Themes
-
-Nine visual themes are available from the View menu:
-
-- Default
-- Cosmos
-- Blood Moon
-- Crystal Wave
-- Solar Flare
-- Aurora Breeze
-- Neon Dreams
-- Emerald Forest
-- Crimson Night
-
-The selected theme is saved and restored between sessions.
-
----
-
-## Supported Formats
-
-ffinflow accepts a wide range of media files. What happens after a file is opened depends on whether Electron can play it natively or whether the transcoding engine needs to process it first.
-
-### Containers Accepted by the Application
+### 🚀 Features
+
+- Traditional menu-driven interface with a fixed control bar — no hidden gestures
+- Plays virtually anything: files Chromium can't decode natively are transcoded automatically
+- Drag-and-drop playlist with shuffle, repeat, and reordering
+- External and embedded subtitle support
+- Media info overlay (codec, resolution, bitrate, audio/subtitle tracks)
+- 18 built-in visual themes
+- Remembers playback position, volume, and playlist between sessions
+- Optional file association for common video/audio formats during install
+
+### 🎞 Supported Formats
 
 | Type | Extensions |
 | :--- | :--- |
-| Video | `.mp4`, `.mkv`, `.avi`, `.webm`, `.mov`, `.flv`, `.m4v`, `.3gp`, `.wmv`, `.ts` |
-| Audio | `.mp3`, `.wav`, `.ogg`, `.aac`, `.m4a`, `.flac`, `.wma`, `.opus` |
-| Subtitles | `.srt`, `.vtt`, `.ass`, `.ssa`, `.sub` |
+| Video | `.mp4` `.mkv` `.avi` `.webm` `.mov` `.flv` `.m4v` `.3gp` `.wmv` `.ts` |
+| Audio | `.mp3` `.wav` `.ogg` `.aac` `.m4a` `.flac` `.wma` `.opus` |
+| Subtitles | `.srt` `.vtt` `.ass` `.ssa` `.sub` |
 
-These are the file types shown in the Open Files dialog, accepted via drag-and-drop, and recognized when passed as command-line arguments or through file associations.
+Anything outside native browser support (HEVC, E-AC3, DTS, TrueHD, older codecs, and more) is transcoded automatically by the bundled FFmpeg engine before playback starts.
 
-### Electron-Native Playback (Direct, No Processing)
+### ⌨️ Keyboard Shortcuts
 
-The following container and codec combinations are played directly by Chromium without any transcoding or remuxing:
+| Key | Action | Key | Action |
+| :--- | :--- | :--- | :--- |
+| Space | Play / Pause | M | Mute / unmute |
+| F | Toggle fullscreen | S | Toggle shuffle |
+| Escape | Exit fullscreen | L | Toggle repeat |
+| ←  / → | Seek ±10s | I | Toggle media info |
+| Ctrl+← / Ctrl+→ | Previous / Next track | T | Toggle playlist |
+| ↑ / ↓ | Volume up / down | 0-9 | Seek to 0%-90% |
 
-| | Formats |
-| :--- | :--- |
-| Containers | MP4, WebM, M4V, MP3, WAV, OGG, AAC, M4A, FLAC, Opus |
-| Video codecs | H.264 (AVC), H.265 (HEVC), VP8, VP9, AV1 |
-| Audio codecs | AAC, Opus, Vorbis, FLAC, MP3, WAV/PCM |
+### 📥 Installation
 
-These lists are not a cross-product: combinations must match the container-specific policy in src/media/preparation-plan.ts. Every playable audio/video stream is checked; attached cover images are excluded from video routing. Actual decoder support also depends on the Electron build and hardware.
+Grab the latest installer from [Releases](https://github.com/skonester/ffinflow/releases/latest). Windows only.
 
-### FFmpeg-Processed Playback (Transcoding Engine)
-
-Files that fall outside the native playback path are processed by the transcoding engine before reaching the player. The engine handles three scenarios:
-
-**Unsupported audio in a native container** -- The video stream is copied losslessly and the audio is transcoded to FLAC. This covers codecs that Chromium cannot decode:
-
-| Audio codecs handled | Examples |
-| :--- | :--- |
-| Dolby Digital Plus | E-AC3 |
-| Dolby Digital | AC-3 |
-| DTS / DTS-HD | DTS, DTS-HD MA |
-| TrueHD | Dolby TrueHD |
-| PCM variants | PCM S24LE, PCM S32LE |
-| Legacy codecs | WMA, RealAudio, Musepack |
-
-**Non-native container with compatible streams** -- Containers like FLV, AVI, WMV, 3GP, and TS that hold browser-friendly streams (such as H.264 video with AAC audio) are remuxed into a temporary MP4 by copying all streams without re-encoding.
-
-**Non-native container with incompatible streams** -- Containers with codecs that neither Chromium nor a simple remux can handle are fully converted to H.264 video with AAC audio in a temporary MP4.
-
-### Video Codecs Supported Through FFmpeg
-
-Any video codec that the bundled FFmpeg build can decode is supported through the full conversion path. This includes but is not limited to:
-
-MPEG-1, MPEG-2, MPEG-4 Part 2 (DivX/Xvid), H.264 (AVC), H.265 (HEVC), VP6, VP8, VP9, AV1, Theora, WMV1, WMV2, WMV3 (VC-1), RealVideo, FLV1 (Sorenson Spark), MJPEG, ProRes, DNxHD, FFV1, HuffYUV, Cinepak, Indeo, MS-MPEG4
-
-### Audio Codecs Supported Through FFmpeg
-
-Any audio codec that the bundled FFmpeg build can decode is supported through the transcoding path:
-
-AAC, MP3, FLAC, Opus, Vorbis, AC-3, E-AC3, DTS, DTS-HD, TrueHD, WMA, WMA Pro, WMA Lossless, PCM (all variants), ALAC, Musepack, RealAudio, AMR-NB, AMR-WB, Speex, G.711, ADPCM (all variants), MP2, MP1, AC-4, ATRAC
-
-The specific codec support depends on the FFmpeg build included with the application. The default build shipped with ffinflow is a full GPL build with most decoders enabled.
-
----
-
-## Installer and File Associations
-
-The Windows installer is built with Electron Builder using NSIS. It uses a multi-step wizard that includes:
-
-- A destination directory selector.
-- A file associations page where the user can choose to make ffinflow the default player for common media formats (.mp4, .mkv, .avi, .webm, .mov, .flv, .3gp, .wmv, .ts, .m4v). This checkbox is enabled by default.
-
-File associations are registered in the current user's registry scope (HKEY_CURRENT_USER), so no administrator privileges are required. The application is also registered in the Windows "Open With" list for all supported video extensions. Associations are cleaned up safely during uninstallation.
-
-When a file is opened via a file association, the file path is passed to ffinflow through process arguments and routed directly to the transcoding engine and player.
-
----
-
-## Saved State
-
-ffinflow remembers the following between sessions:
-
-- Playlist contents and order
-- Playback position for each file (configurable, enabled by default)
-- Volume level
-- Selected theme
-- Hardware acceleration preference
-
-All state is stored locally using electron-store. No account, network connection, or cloud service is required.
-
----
-
-## Auto-Updates
-
-ffinflow supports automatic update checking through electron-updater. On startup, the application checks for new releases published to GitHub. When an update is available, the user is prompted to download and install it. Release notes are displayed before and after updates.
-
-Updates can also be triggered manually from the Help menu.
-
----
-
-## Project Structure
-
-| Directory / File | Purpose |
-| :--- | :--- |
-| src/main.ts | Electron lifecycle, media paths, preparation-service integration, media information, and IPC handlers. |
-| src/media/preparation-plan.ts | Strictly typed compatibility decisions and per-stream FFmpeg arguments. |
-| src/media/preparation-service.ts | Process lifecycle, output validation, stable cache identity, and active-job deduplication. |
-| `src/renderer.ts` | Player UI orchestration. Playlist state, playback controls, media info overlay, keyboard shortcuts, drag-and-drop, menu event wiring, and settings management. |
-| `src/subtitles.ts` | Subtitle discovery, embedded subtitle extraction via FFmpeg, subtitle rendering, timing adjustment, and cache management. |
-| `src/menu-template.ts` | Native desktop menu definitions for File, View, Playback, and Help menus. |
-| `src/release-notes.ts` | Version-keyed release notes for the update dialog. |
-| `src/modules/` | Smaller modules for constants, file system operations, fullscreen management, hardware acceleration, media controls, playback position, player UI adjustments, themes, and utilities. |
-| `src/types/` | TypeScript type declarations for global variables shared across modules. |
-| `out/` | Compiled JavaScript output (generated by tsc). |
-| `build/` | Build resources including the application icon and the custom NSIS installer script. |
-| `ffmpeg-binaries/` | Prebuilt FFmpeg and FFprobe executables, packaged into the installer as extra resources. |
-| `index.html` | Application shell with the player layout, control bar, and playlist panel. |
-| `styles.css` | All visual styling and theme definitions. |
-
----
-
-## Development
-
-Install dependencies:
+### 🔧 Build from source
 
 ```bash
+git clone https://github.com/skonester/ffinflow.git
+cd ffinflow
 npm install
-```
-
-Compile TypeScript to JavaScript:
-
-```bash
-npm run compile
-```
-
-Start the application in development mode:
-
-```bash
-npm start
-```
-
-Build the Windows installer:
-
-```bash
 npm run build
 ```
 
-Publish a release through Electron Builder:
+The installer is written to `dist/`.
 
-```bash
-npm run publish
-```
-
----
-
-### Pipeline Regression Tests
-
-Run npm test to compile the application, strictly type-check the independent pipeline, and test generated media fixtures with the bundled FFmpeg/FFprobe binaries. Tests cover E-AC3 conversion, non-silent decoded output, channel preservation, unchanged compressed video data, secondary tracks, cache recovery, and process failures. Binary paths can be overridden with FFINFLOW_FFMPEG and FFINFLOW_FFPROBE.
-
-To include the generated 8K stream-copy fixture in PowerShell:
-
-```powershell
-$env:FFINFLOW_TEST_8K = '1'
-npm test
-```
-
-The pipeline uses strict and noUncheckedIndexedAccess checks through npm run check:pipeline. Existing UI modules retain their current TypeScript settings. These tests verify preparation, not interactive Chromium playback, HDR presentation, or performance with full-length 8K movies.
-## FFmpeg Binaries
-
-The project uses prebuilt FFmpeg and FFprobe binaries. After `npm install`, the postinstall script copies them into `ffmpeg-binaries/`:
-
-```bash
-node copyFFmpeg.js
-```
-
-Electron Builder packages that directory through the `extraResources` configuration, so the installed application loads the binaries from `resources/ffmpeg-binaries/`.
-
-Custom FFmpeg builds can be used by replacing `ffmpeg-binaries/ffmpeg.exe` and `ffmpeg-binaries/ffprobe.exe` before running `npm run build`.
-
-The binaries are tracked with Git LFS due to GitHub's file size limits. The LFS rule is defined in `.gitattributes`:
-
-```
-ffmpeg-binaries/*.exe filter=lfs diff=lfs merge=lfs -text
-```
-
----
-
-## Platform
-
-ffinflow is currently Windows-only. The packaged build expects Windows executables (`ffmpeg.exe`, `ffprobe.exe`), the Electron Builder configuration targets NSIS, and file association registration uses the Windows registry. Cross-platform packaging is not currently planned.
-
----
-
-## License
+### 📄 License
 
 MIT License. See [LICENSE](LICENSE).

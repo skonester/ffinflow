@@ -1,4 +1,4 @@
-const { ipcRenderer } = require("electron");
+const { ipcRenderer, shell } = require("electron");
 const { parseFile } = require("music-metadata");
 const path = require("path");
 const { fileURLToPath, pathToFileURL } = require("url");
@@ -1747,4 +1747,191 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 // --- End: Transcode Overlay Logic ---
+
+// --- Start: Update Status Toast ---
+// main.ts / menu-template.ts send 'update-message' and 'update-progress' over
+// IPC when checking/downloading app updates. Positioned above the control bar
+// (which spans the full width at the bottom, ~15px padding, z-index 1000) so
+// it can never overlap it, and sized to its content instead of full-width.
+
+document.addEventListener("DOMContentLoaded", () => {
+    const updateToast = document.createElement('div');
+    updateToast.id = 'update-status-toast';
+    Object.assign(updateToast.style, {
+        position: 'fixed',
+        bottom: '110px',
+        right: '20px',
+        maxWidth: '320px',
+        padding: '10px 14px',
+        borderRadius: '6px',
+        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+        color: 'white',
+        fontSize: '13px',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        zIndex: '900',
+        display: 'none',
+        alignItems: 'center',
+        gap: '8px',
+        boxShadow: '0 2px 10px rgba(0, 0, 0, 0.4)'
+    });
+
+    const updateStatusText = document.createElement('span');
+    updateStatusText.id = 'update-status-text';
+
+    const updateStatusProgress = document.createElement('span');
+    updateStatusProgress.id = 'update-status-progress';
+
+    updateToast.appendChild(updateStatusText);
+    updateToast.appendChild(updateStatusProgress);
+    document.body.appendChild(updateToast);
+
+    let hideTimeout = null;
+
+    ipcRenderer.on('update-message', (_event, message) => {
+        updateStatusText.innerText = message;
+        updateStatusProgress.innerText = '';
+        updateToast.style.display = 'flex';
+
+        if (hideTimeout) clearTimeout(hideTimeout);
+        hideTimeout = setTimeout(() => {
+            updateToast.style.display = 'none';
+        }, 4000);
+    });
+
+    ipcRenderer.on('update-progress', (_event, percent) => {
+        updateToast.style.display = 'flex';
+        updateStatusProgress.innerText = `${Math.round(percent)}%`;
+    });
+});
+
+// --- End: Update Status Toast ---
+
+// --- Start: Themed App Dialog ---
+// Replaces the native OS message box for Help menu popups (About, Release
+// Notes, Keyboard Shortcuts, Check for Updates, Hardware Acceleration restart,
+// Set as Default Player) with an in-window dialog that matches the app's own
+// dark theme. Main process sends 'show-app-dialog' with the same
+// {title, message, detail, buttons, defaultId} shape dialog.showMessageBox
+// took; we send back 'app-dialog-response' with {response: index}.
+
+document.addEventListener("DOMContentLoaded", () => {
+    const overlay = document.createElement('div');
+    overlay.id = 'app-dialog-overlay';
+    Object.assign(overlay.style, {
+        position: 'fixed',
+        inset: '0',
+        backgroundColor: 'rgba(0, 0, 0, 0.6)',
+        zIndex: '10000',
+        display: 'none',
+        alignItems: 'center',
+        justifyContent: 'center'
+    });
+
+    const box = document.createElement('div');
+    Object.assign(box.style, {
+        background: 'var(--bg-dark, #232323)',
+        color: 'var(--text-color, #e0e0e0)',
+        borderRadius: '10px',
+        padding: '24px 28px',
+        maxWidth: '420px',
+        width: '90%',
+        maxHeight: '80vh',
+        overflowY: 'auto',
+        boxShadow: '0 10px 40px rgba(0, 0, 0, 0.5)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        fontFamily: 'system-ui, -apple-system, sans-serif',
+        textAlign: 'center'
+    });
+
+    const titleEl = document.createElement('h2');
+    Object.assign(titleEl.style, {
+        margin: '0 0 14px',
+        color: 'var(--primary-color, #ff6600)',
+        fontSize: '17px'
+    });
+
+    const messageEl = document.createElement('p');
+    Object.assign(messageEl.style, {
+        margin: '0 0 8px',
+        fontSize: '14px',
+        whiteSpace: 'pre-line',
+        textAlign: 'left'
+    });
+
+    const detailEl = document.createElement('p');
+    Object.assign(detailEl.style, {
+        margin: '0 0 18px',
+        fontSize: '13px',
+        color: 'rgba(255, 255, 255, 0.65)',
+        whiteSpace: 'pre-line',
+        textAlign: 'left'
+    });
+
+    const buttonRow = document.createElement('div');
+    Object.assign(buttonRow.style, {
+        display: 'flex',
+        gap: '10px',
+        justifyContent: 'center',
+        marginTop: '4px'
+    });
+
+    box.appendChild(titleEl);
+    box.appendChild(messageEl);
+    box.appendChild(detailEl);
+    box.appendChild(buttonRow);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+
+    function closeAppDialog(responseIndex) {
+        overlay.style.display = 'none';
+        ipcRenderer.send('app-dialog-response', { response: responseIndex });
+    }
+
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+            closeAppDialog(-1);
+        }
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (overlay.style.display === 'flex' && e.key === 'Escape') {
+            closeAppDialog(-1);
+        }
+    });
+
+    ipcRenderer.on('show-app-dialog', (_event, options) => {
+        titleEl.innerText = options.title || '';
+        titleEl.style.display = options.title ? '' : 'none';
+        messageEl.innerText = options.message || '';
+        messageEl.style.display = options.message ? '' : 'none';
+        detailEl.innerText = options.detail || '';
+        detailEl.style.display = options.detail ? '' : 'none';
+
+        const defaultIndex = typeof options.defaultId === 'number' ? options.defaultId : 0;
+        const buttons = options.buttons && options.buttons.length ? options.buttons : ['OK'];
+
+        buttonRow.innerHTML = '';
+        buttons.forEach((label, index) => {
+            const isDefault = index === defaultIndex;
+            const btn = document.createElement('button');
+            btn.innerText = label;
+            Object.assign(btn.style, {
+                padding: '8px 16px',
+                border: isDefault ? '1px solid var(--primary-color, #ff6600)' : '1px solid rgba(255, 255, 255, 0.1)',
+                borderRadius: '5px',
+                background: isDefault ? 'var(--primary-color, #ff6600)' : 'rgba(255, 255, 255, 0.05)',
+                color: isDefault ? '#fff' : 'var(--text-color, #e0e0e0)',
+                cursor: 'pointer',
+                fontSize: '13px'
+            });
+            btn.addEventListener('click', () => closeAppDialog(index));
+            buttonRow.appendChild(btn);
+        });
+
+        overlay.style.display = 'flex';
+    });
+});
+
+// --- End: Themed App Dialog ---
+
 export {};

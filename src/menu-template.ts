@@ -1,6 +1,5 @@
-const { app, dialog, shell } = require('electron');
+const { app, shell, ipcMain } = require('electron');
 const { getCurrentTheme } = require('./modules/themes');
-const { RELEASE_NOTES } = require('./release-notes');
 const { autoUpdater } = require('electron-updater');
 const Store = require('electron-store');
 const store = new Store();
@@ -9,7 +8,16 @@ const { setAsDefaultMediaPlayer } = require('./modules/fileAssociations');
 
 const PROJECT_URL = 'https://github.com/skonester/ffinflow';
 
-const createMenuTemplate = (mainWindow) => [
+// Shows a themed in-app dialog (rendered in the window) instead of the native
+// OS message box, so Help menu popups match the app's own dark UI.
+function askRendererDialog(mainWindow, options) {
+    return new Promise<{ response: number }>((resolve) => {
+        ipcMain.once('app-dialog-response', (_event, result) => resolve(result));
+        mainWindow.webContents.send('show-app-dialog', options);
+    });
+}
+
+const createMenuTemplate = (mainWindow, updateCheckState = { manual: false }) => [
     {
         label: 'File',
         submenu: [
@@ -102,7 +110,6 @@ const createMenuTemplate = (mainWindow) => [
                         checked: getCurrentTheme() === 'draculaVamp',
                         click: () => mainWindow.webContents.send('change-theme', 'draculaVamp')
                     },
-                    { type: 'separator' },
                     {
                         label: 'Cosmos',
                         type: 'radio',
@@ -277,8 +284,7 @@ const createMenuTemplate = (mainWindow) => [
                     store.set('hardwareAcceleration', menuItem.checked);
                     
                     // Show dialog informing user about restart requirement
-                    dialog.showMessageBox({
-                        type: 'info',
+                    askRendererDialog(mainWindow, {
                         title: 'Restart Required',
                         message: 'Hardware acceleration changes will take effect after restarting the application.',
                         buttons: ['Restart Now', 'Later'],
@@ -299,71 +305,12 @@ const createMenuTemplate = (mainWindow) => [
                 }
             },
             {
-                label: 'Release Notes',
-                click: async () => {
-                    const currentVersion = app.getVersion();
-                    let message = `Current Version: ${currentVersion}\n\nCurrent Release Notes:\n`;
-                    
-                    // Add current version's release notes
-                    if (RELEASE_NOTES && RELEASE_NOTES[currentVersion]) {
-                        message += '• ' + RELEASE_NOTES[currentVersion].join('\n• ') + '\n\n';
-                    } else {
-                        message += 'No release notes available for current version.\n\n';
-                    }
-                    
-                    try {
-                        const updateCheckResult = await autoUpdater.checkForUpdates();
-                        if (updateCheckResult && updateCheckResult.updateInfo) {
-                            const newVersion = updateCheckResult.updateInfo.version;
-                            if (newVersion !== currentVersion) {
-                                message += `New Version Available: ${newVersion}\n\nNew Release Notes:\n`;
-                                if (RELEASE_NOTES && RELEASE_NOTES[newVersion]) {
-                                    message += '• ' + RELEASE_NOTES[newVersion].join('\n• ') + '\n\n';
-                                } else if (updateCheckResult.updateInfo.releaseNotes) {
-                                    message += updateCheckResult.updateInfo.releaseNotes + '\n\n';
-                                } else {
-                                    message += 'No release notes available for new version.\n\n';
-                                }
-                                
-                                dialog.showMessageBox(mainWindow, {
-                                    title: 'Release Notes',
-                                    message: message,
-                                    buttons: ['Update Now', 'Later'],
-                                    defaultId: 1,
-                                    cancelId: 1,
-                                    detail: 'Would you like to update to the new version?'
-                                }).then(result => {
-                                    if (result.response === 0) {
-                                        autoUpdater.downloadUpdate();
-                                        mainWindow.webContents.send('update-message', 'Downloading update...');
-                                    }
-                                });
-                            } else {
-                                dialog.showMessageBox(mainWindow, {
-                                    title: 'Release Notes',
-                                    message: message,
-                                    buttons: ['OK']
-                                });
-                            }
-                        }
-                    } catch (error) {
-                        console.error('Error checking for updates:', error);
-                        dialog.showMessageBox(mainWindow, {
-                            title: 'Release Notes',
-                            message: message,
-                            buttons: ['OK']
-                        });
-                    }
-                }
-            },
-            {
                 label: 'Set as Default Player (Associate Media Files)',
                 visible: process.platform === 'win32',
                 click: async () => {
                     await setAsDefaultMediaPlayer();
                     shell.openExternal('ms-settings:defaultapps?registeredAppUser=ffinflow');
-                    dialog.showMessageBox(mainWindow, {
-                        type: 'info',
+                    askRendererDialog(mainWindow, {
                         title: 'Default Media Player',
                         message: 'ffinflow is registered for all media formats!',
                         detail: 'All video (.mp4, .mkv, .avi, .webm, .mov, etc.) and audio formats have been associated with ffinflow in the Windows registry.\n\nIn the Windows Settings window that just opened, click "Set default" at the top to finalize system defaults with one click.',
@@ -374,7 +321,7 @@ const createMenuTemplate = (mainWindow) => [
             {
                 label: 'Keyboard Shortcuts',
                 click: () => {
-                    dialog.showMessageBox(mainWindow, {
+                    askRendererDialog(mainWindow, {
                         title: 'Keyboard Shortcuts',
                         message: 'Space: Play/Pause\nF: Toggle Fullscreen\nCtrl+O: Open Files\nCtrl+Shift+O: Open Folder\nCtrl+Left: Previous\nCtrl+Right: Next',
                         buttons: ['OK']
@@ -384,12 +331,12 @@ const createMenuTemplate = (mainWindow) => [
             {
                 label: 'Check for Updates',
                 click: async () => {
+                    updateCheckState.manual = true;
                     try {
                         await autoUpdater.checkForUpdatesAndNotify();
                     } catch (error) {
                         console.error('Error checking for updates:', error);
-                        const result = await dialog.showMessageBox(mainWindow, {
-                            type: 'warning',
+                        const result = await askRendererDialog(mainWindow, {
                             title: 'Unable to Check for Updates',
                             message: 'ffinflow could not check for updates automatically.',
                             detail: `You can check releases manually at:\n${PROJECT_URL}`,
@@ -401,17 +348,26 @@ const createMenuTemplate = (mainWindow) => [
                         if (result.response === 0) {
                             shell.openExternal(PROJECT_URL);
                         }
+                    } finally {
+                        updateCheckState.manual = false;
                     }
                 }
             },
             {
                 label: 'About',
-                click: () => {
-                    dialog.showMessageBox(mainWindow, {
+                click: async () => {
+                    const result = await askRendererDialog(mainWindow, {
                         title: 'About ffinflow',
-                        message: 'ffinflow Media Player\nVersion ' + app.getVersion(),
-                        buttons: ['OK']
+                        message: 'ffinflow',
+                        detail: `Version ${app.getVersion()}\nFFmpeg-powered video and audio player\n\nCreated by Skonester\n${PROJECT_URL}`,
+                        buttons: ['Visit GitHub', 'OK'],
+                        defaultId: 1,
+                        cancelId: 1
                     });
+
+                    if (result.response === 0) {
+                        shell.openExternal(PROJECT_URL);
+                    }
                 }
             },
             ...(!app.isPackaged ? [{

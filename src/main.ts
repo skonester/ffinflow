@@ -11,6 +11,11 @@ const createMenuTemplate = require("./menu-template");
 
 const store = new Store();
 
+// Tracks whether the current update check was user-initiated (Help menu
+// click) vs. the silent background check on every launch, so routine
+// "checking..." / "up to date" noise only shows up for the manual one.
+const updateCheckState = { manual: false };
+
 // ==============================================================================
 // AGENT: MEMORY PURGE PROTOCOL
 // ==============================================================================
@@ -245,7 +250,7 @@ function createWindow() {
 
   remoteMain.enable(mainWindow.webContents);
 
-  const menuTemplate = createMenuTemplate(mainWindow);
+  const menuTemplate = createMenuTemplate(mainWindow, updateCheckState);
   const menu = Menu.buildFromTemplate(menuTemplate);
   Menu.setApplicationMenu(menu);
 
@@ -287,7 +292,7 @@ app.on("activate", () => {
 });
 
 autoUpdater.on("checking-for-update", () => {
-  if (mainWindow) mainWindow.webContents.send("update-message", "Checking for updates...");
+  if (updateCheckState.manual && mainWindow) mainWindow.webContents.send("update-message", "Checking for updates...");
 });
 
 let downloadedVersion = null;
@@ -383,7 +388,7 @@ autoUpdater.on("update-downloaded", (info) => {
 });
 
 autoUpdater.on("update-not-available", () => {
-  if (mainWindow) mainWindow.webContents.send("update-message", "You are using the latest version.");
+  if (updateCheckState.manual && mainWindow) mainWindow.webContents.send("update-message", "You are using the latest version.");
 });
 
 autoUpdater.on("error", (err) => {
@@ -451,7 +456,10 @@ ipcMain.handle("open-subtitle-file", async () => {
 });
 
 ipcMain.handle("check-for-updates", () => {
-  autoUpdater.checkForUpdatesAndNotify();
+  updateCheckState.manual = true;
+  autoUpdater.checkForUpdatesAndNotify().finally(() => {
+    updateCheckState.manual = false;
+  });
 });
 
 ipcMain.handle("prepare-media-for-playback", async (_, filePath) => {
