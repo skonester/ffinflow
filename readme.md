@@ -79,8 +79,9 @@ The installer is written to `dist/`.
 GNU General Public License v3.0 (or later). See [LICENSE](LICENSE).
 
 Portions of the codebase remain available under their original MIT License —
-see [LICENSE-MIT](LICENSE-MIT) — including the original ffinflow codebase
-(© Naveen Devang) and the downloader engine (`src/downloader/`,
-`src/modules/downloaderUI.ts`), adapted from [dlME](https://github.com/YazeKT/dlME)
-(© Kirsten Trimaley). The built-in downloader also bundles
-[yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense).
+see [LICENSE-MIT](LICENSE-MIT) — including the original player GUI, adapted
+from [Fury](https://github.com/naveen-devang/Fury) (© Naveen Devang) prior to
+ffinflow's transition to TypeScript, and the downloader engine
+(`src/downloader/`, `src/modules/downloaderUI.ts`), adapted from
+[dlME](https://github.com/YazeKT/dlME) (© Kirsten Trimaley). The built-in
+downloader also bundles [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense).

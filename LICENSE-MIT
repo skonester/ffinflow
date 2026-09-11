@@ -3,7 +3,9 @@ This project (ffinflow) is licensed under the GNU General Public License v3
 originated under the MIT License and remain available under those original
 terms, per the MIT License's own attribution requirement:
 
-- The original ffinflow codebase prior to the GPL-3.0 relicensing.
+- The original player GUI/frontend, adapted from Fury
+  (https://github.com/naveen-devang/Fury), created by Naveen Devang, prior
+  to ffinflow's transition to TypeScript.
 - The downloader engine (src/downloader/, src/modules/downloaderUI.ts),
   adapted from dlME (https://github.com/YazeKT/dlME), created by
   Kirsten Trimaley.
