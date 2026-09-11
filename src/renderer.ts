@@ -50,6 +50,7 @@ const {
 
 const HardwareAcceleration = require("./modules/hardwareAccelerations");
 const SubtitlesManager = require("./subtitles");
+const { initDownloaderUI } = require("./modules/downloaderUI");
 
 let playlist = [];
 let currentIndex = -1;
@@ -76,6 +77,7 @@ const rememberPlayback = store.get("rememberPlayback", true); // Default to true
 
 document.addEventListener("DOMContentLoaded", () => {
   applyTheme(getCurrentTheme());
+  initDownloaderUI();
 });
 
 

@@ -1,4 +1,7 @@
 import { MediaPreparationService } from "./media/preparation-service";
+import { DownloaderStore } from "./downloader/store";
+import { DownloadEngine } from "./downloader/engine";
+import { registerDownloaderIpc } from "./downloader/ipc";
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const fs = require("fs").promises;
 const path = require("path");
@@ -55,6 +58,26 @@ const FFPROBE_PATH = FFMPEG_PATH.replace('ffmpeg.exe', 'ffprobe.exe');
 
 ffmpeg.setFfmpegPath(FFMPEG_PATH);
 ffmpeg.setFfprobePath(FFPROBE_PATH);
+
+// ==============================================================================
+// AGENT: DOWNLOADER ENGINE (yt-dlp) CONFIGURATION
+// ==============================================================================
+const YTDLP_PATH = app.isPackaged
+    ? path.join(process.resourcesPath, 'ytdlp-binaries', 'yt-dlp.exe')
+    : path.join(__dirname, '..', 'ytdlp-binaries', 'yt-dlp.exe');
+
+let downloadEngine: DownloadEngine | undefined;
+
+function initDownloader(window): void {
+  const downloaderStore = new DownloaderStore();
+  downloadEngine = new DownloadEngine(
+    downloaderStore,
+    { ytDlpPath: YTDLP_PATH, ffmpegDir: path.dirname(FFMPEG_PATH), ffprobePath: FFPROBE_PATH },
+    (job) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('downloader:job-changed', job); },
+    (entry) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('downloader:log', entry); }
+  );
+  registerDownloaderIpc(window, downloaderStore, downloadEngine);
+}
 
 let mainWindow;
 let fileToOpen = null;
@@ -154,7 +177,7 @@ async function interceptAndFixAudio(input: unknown): Promise<string> {
   }
 }
 
-app.on("before-quit", () => preparationService?.dispose());
+app.on("before-quit", () => { preparationService?.dispose(); void downloadEngine?.shutdown(); });
 
 // ==============================================================================
 // AGENT: OS-LEVEL INTAKE ROUTING
@@ -274,6 +297,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+  initDownloader(mainWindow);
   setTimeout(() => {
     autoUpdater.checkForUpdatesAndNotify();
   }, 3000);

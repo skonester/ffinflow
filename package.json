@@ -1,8 +1,9 @@
 {
   "name": "ffinflow",
-  "version": "1.4.8",
+  "version": "1.4.9",
   "description": "FFmpeg Media player",
   "author": "Skonester",
+  "license": "GPL-3.0-or-later",
   "homepage": "https://github.com/skonester/ffinflow",
   "repository": {
     "type": "git",
@@ -14,7 +15,7 @@
     "start": "tsc && electron .",
     "build": "tsc && electron-builder",
     "publish": "tsc && electron-builder -p always",
-    "postinstall": "node copyFFmpeg.js",
+    "postinstall": "node copyFFmpeg.js && node fetch-ytdlp.js",
     "check:pipeline": "tsc -p tsconfig.pipeline.json --noEmit",
     "test": "npm run compile && npm run check:pipeline && node --test tests/*.test.cjs"
   },
@@ -57,6 +58,13 @@
       {
         "from": "ffmpeg-binaries/",
         "to": "ffmpeg-binaries/",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "ytdlp-binaries/",
+        "to": "ytdlp-binaries/",
         "filter": [
           "**/*"
         ]

@@ -42,6 +42,11 @@ const createMenuTemplate = (mainWindow, updateCheckState = { manual: false }) =>
                 accelerator: 'CmdOrCtrl+Shift+V',
                 click: () => mainWindow.webContents.send('menu-convert-file')
             },
+            {
+                label: 'Download Media...',
+                accelerator: 'CmdOrCtrl+Shift+D',
+                click: () => mainWindow.webContents.send('menu-open-downloader')
+            },
             { type: 'separator' },
             {
                 label: 'Exit',

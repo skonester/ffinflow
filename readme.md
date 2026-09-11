@@ -36,6 +36,7 @@ A no-nonsense desktop media player for Windows with a classic, always-visible co
 - 18 built-in visual themes
 - Remembers playback position, volume, and playlist between sessions
 - Optional file association for common video/audio formats during install
+- Built-in media downloader (File → Download Media...): analyze a URL, download video or audio with live progress, get a verified MP4 on completion, and browse everything in a local file library
 
 ### 🎞 Supported Formats
 
@@ -75,4 +76,11 @@ The installer is written to `dist/`.
 
 ### 📄 License
 
-MIT License. See [LICENSE](LICENSE).
+GNU General Public License v3.0 (or later). See [LICENSE](LICENSE).
+
+Portions of the codebase remain available under their original MIT License —
+see [LICENSE-MIT](LICENSE-MIT) — including the original ffinflow codebase
+(© Naveen Devang) and the downloader engine (`src/downloader/`,
+`src/modules/downloaderUI.ts`), adapted from [dlME](https://github.com/YazeKT/dlME)
+(© Kirsten Trimaley). The built-in downloader also bundles
+[yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense).
