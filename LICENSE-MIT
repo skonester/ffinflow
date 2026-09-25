@@ -10,8 +10,14 @@ terms, per the MIT License's own attribution requirement:
   adapted from dlME (https://github.com/YazeKT/dlME), created by
   Kirsten Trimaley.
 
+The following MIT-licensed library is bundled unmodified with ffinflow:
+
+- Parsium (parsium-media, https://github.com/NepiRaw/Parsium), created by
+  NepiRaw, used for release-name parsing (src/media/release-name.ts).
+
 MIT License
 
+Copyright (c) 2026 NepiRaw
 Copyright (c) 2026 Kirsten Trimaley
 Copyright (c) 2025 Naveen Devang
 

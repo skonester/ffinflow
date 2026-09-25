@@ -12,6 +12,7 @@ const { app } = require("@electron/remote");
 const ffmpeg = require("fluent-ffmpeg");
 const path = require("path");
 const { pathToFileURL } = require("url");
+const { isSameRelease } = require("./media/release-name");
 
 let ffmpegBinary: string;
 let ffprobeBinary: string;
@@ -920,7 +921,8 @@ class SubtitlesManager {
         const name = path.parse(file).name;
         const isSupported = this.supportedFormats.includes(ext);
         const matchesVideo =
-          name.startsWith(videoName) || name.includes(videoName);
+          name.includes(videoName) ||
+          (isSupported && isSameRelease(videoPath, file));
         return isSupported && matchesVideo;
       });
 

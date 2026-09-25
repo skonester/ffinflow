@@ -86,3 +86,5 @@ ffinflow's transition to TypeScript, and the downloader engine
 (`src/downloader/`, `src/modules/downloaderUI.ts`), adapted from
 [dlME](https://github.com/YazeKT/dlME) (© Kirsten Trimaley). The built-in
 downloader also bundles [yt-dlp](https://github.com/yt-dlp/yt-dlp) (Unlicense).
+Clean titles and subtitle matching for release-style filenames use
+[Parsium](https://github.com/NepiRaw/Parsium) (© NepiRaw, MIT).

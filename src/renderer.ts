@@ -51,6 +51,11 @@ const {
 const HardwareAcceleration = require("./modules/hardwareAccelerations");
 const SubtitlesManager = require("./subtitles");
 const { initDownloaderUI } = require("./modules/downloaderUI");
+const { describeRelease } = require("./media/release-name");
+
+// Clean "Show - S01E02" style title from a scene/torrent filename, else the raw name.
+const fileDisplayTitle = (filePath) =>
+  describeRelease(filePath)?.displayTitle || path.basename(filePath);
 
 let playlist = [];
 let currentIndex = -1;
@@ -263,6 +268,12 @@ function renderMediaInfoOverlay() {
   const fileName = currentIndex !== -1 && playlist[currentIndex]
     ? path.basename(playlist[currentIndex].path)
     : "Current media";
+  const release = currentIndex !== -1 && playlist[currentIndex]
+    ? describeRelease(playlist[currentIndex].path)
+    : null;
+  const releaseLine = release
+    ? [release.displayTitle, ...release.details].join("  |  ")
+    : "";
   const video = currentMediaInfo.video?.[0];
   const audio = currentMediaInfo.audio || [];
   const subtitles = currentMediaInfo.subtitles || [];
@@ -305,6 +316,7 @@ function renderMediaInfoOverlay() {
     <div class="media-info-title">Media Info</div>
     <div class="media-info-name">${escapeHtml(fileName)}</div>
     <div class="media-info-grid">
+      ${releaseLine ? `<span>Release</span><strong>${escapeHtml(releaseLine)}</strong>` : ""}
       <span>State</span><strong>${escapeHtml(playbackState)}  |  ${escapeHtml(currentTime)}</strong>
       <span>Container</span><strong>${escapeHtml(currentMediaInfo.format?.longName || currentMediaInfo.format?.name || "unknown")}</strong>
       <span>Duration</span><strong>${escapeHtml(formatDurationSeconds(currentMediaInfo.format?.duration))}</strong>
@@ -1057,7 +1069,7 @@ async function addToPlaylist(filePath) {
   const basicInfo = {
     path: filePath,
     metadata: {
-      title: path.basename(filePath),
+      title: fileDisplayTitle(filePath),
       duration: 0,
     },
   };
@@ -1086,7 +1098,7 @@ async function addToPlaylist(filePath) {
     parseFile(filePath)
       .then((metadata) => {
         playlist[index].metadata.title =
-          metadata.common.title || path.basename(filePath);
+          metadata.common.title || fileDisplayTitle(filePath);
         playlist[index].metadata.artist =
           metadata.common.artist || "Unknown Artist";
         updatePlaylistUI();
@@ -1112,7 +1124,7 @@ function updatePlaylistUI() {
     element.dataset.index = index.toString();
     element.innerHTML = `
             <div class="playlist-item-content">
-                <span class="title">${item.metadata.title}</span>
+                <span class="title" title="${escapeHtml(path.basename(item.path))}">${item.metadata.title}</span>
                 <div class="playlist-item-controls">
                     <span class="duration">${formatTime(item.metadata.duration)}</span>
                     <button class="remove-button">X</button>
