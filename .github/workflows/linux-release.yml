@@ -13,6 +13,7 @@ jobs:
   build-flatpak:
     name: Build Linux x86_64 Flatpak
     runs-on: ubuntu-24.04
+    timeout-minutes: 60
 
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -29,12 +30,23 @@ jobs:
           node-version: "24"
           cache: npm
 
+      # The runtime/SDK/BaseApp download from flathub is large and can be very
+      # slow from GitHub runners, so it is cached between runs.
+      - name: Cache flatpak runtimes
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-user-24.08-electron2-v1
+
       - name: Install flatpak tooling
+        timeout-minutes: 25
         run: |
           sudo apt-get update
           sudo apt-get install -y flatpak flatpak-builder elfutils
           flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user --noninteractive flathub \
+          # --no-related skips locales, GL drivers and codec extensions, which
+          # are only needed to run apps, not to build them.
+          flatpak install --user --noninteractive --no-related flathub \
             org.freedesktop.Platform//24.08 \
             org.freedesktop.Sdk//24.08 \
             org.electronjs.Electron2.BaseApp//24.08
