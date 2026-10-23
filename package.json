@@ -1,6 +1,6 @@
 {
   "name": "ffinflow",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "FFmpeg Media player",
   "author": "Skonester",
   "license": "GPL-3.0-or-later",
@@ -83,6 +83,50 @@
       "perMachine": true,
       "include": "build/installer.nsh",
       "warningsAsErrors": false
+    },
+    "linux": {
+      "target": [
+        "flatpak"
+      ],
+      "icon": "build/icon.png",
+      "category": "AudioVideo;Video;Player",
+      "mimeTypes": [
+        "video/mp4",
+        "video/x-matroska",
+        "video/x-msvideo",
+        "video/webm",
+        "video/quicktime",
+        "video/x-flv",
+        "video/x-m4v",
+        "video/3gpp",
+        "video/x-ms-wmv",
+        "video/mp2t",
+        "audio/mpeg",
+        "audio/wav",
+        "audio/ogg",
+        "audio/aac",
+        "audio/mp4",
+        "audio/flac",
+        "audio/x-ms-wma",
+        "audio/opus"
+      ]
+    },
+    "flatpak": {
+      "runtimeVersion": "24.08",
+      "baseVersion": "24.08",
+      "finishArgs": [
+        "--socket=wayland",
+        "--socket=x11",
+        "--share=ipc",
+        "--device=dri",
+        "--socket=pulseaudio",
+        "--filesystem=home",
+        "--filesystem=/media",
+        "--filesystem=/run/media",
+        "--filesystem=/mnt",
+        "--share=network",
+        "--talk-name=org.freedesktop.Notifications"
+      ]
     },
     "publish": {
       "provider": "github",

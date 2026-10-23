@@ -50,11 +50,15 @@ autoUpdater.logger = log;
 // ==============================================================================
 // AGENT: FFMPEG & FFPROBE DIRECT TARGET CONFIGURATION
 // ==============================================================================
-const FFMPEG_PATH = app.isPackaged 
-    ? path.join(process.resourcesPath, 'ffmpeg-binaries', 'ffmpeg.exe') 
-    : path.join(__dirname, '..', 'ffmpeg-binaries', 'ffmpeg.exe');
+// Windows ships .exe binaries; Linux (flatpak) ships extensionless ones.
+const EXE_SUFFIX = process.platform === 'win32' ? '.exe' : '';
 
-const FFPROBE_PATH = FFMPEG_PATH.replace('ffmpeg.exe', 'ffprobe.exe');
+const FFMPEG_DIR = app.isPackaged
+    ? path.join(process.resourcesPath, 'ffmpeg-binaries')
+    : path.join(__dirname, '..', 'ffmpeg-binaries');
+
+const FFMPEG_PATH = path.join(FFMPEG_DIR, `ffmpeg${EXE_SUFFIX}`);
+const FFPROBE_PATH = path.join(FFMPEG_DIR, `ffprobe${EXE_SUFFIX}`);
 
 ffmpeg.setFfmpegPath(FFMPEG_PATH);
 ffmpeg.setFfprobePath(FFPROBE_PATH);
@@ -63,8 +67,8 @@ ffmpeg.setFfprobePath(FFPROBE_PATH);
 // AGENT: DOWNLOADER ENGINE (yt-dlp) CONFIGURATION
 // ==============================================================================
 const YTDLP_PATH = app.isPackaged
-    ? path.join(process.resourcesPath, 'ytdlp-binaries', 'yt-dlp.exe')
-    : path.join(__dirname, '..', 'ytdlp-binaries', 'yt-dlp.exe');
+    ? path.join(process.resourcesPath, 'ytdlp-binaries', `yt-dlp${EXE_SUFFIX}`)
+    : path.join(__dirname, '..', 'ytdlp-binaries', `yt-dlp${EXE_SUFFIX}`);
 
 let downloadEngine: DownloadEngine | undefined;
 
@@ -195,7 +199,8 @@ async function handleFileOpen(event, filePath) {
   }
 }
 
-if (process.platform === "win32") {
+// Windows and Linux both pass the file to open on the command line.
+if (process.platform !== "darwin") {
   const gotTheLock = app.requestSingleInstanceLock();
 
   if (!gotTheLock) {

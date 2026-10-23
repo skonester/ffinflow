@@ -11,3 +11,7 @@ If you run `npm install` before ever running `fetch-ffmpeg.ps1`, `ffmpeg-binarie
 - HEVC/AV1 source handling in `preparation-service.ts` will fail the same way.
 
 **So: run `fetch-ffmpeg.ps1` before (or instead of relying on) `npm install`'s postinstall step**, or re-run it afterward to overwrite the minimal build. This hasn't been fixed at the tooling level yet — candidates: make `postinstall` call `fetch-ffmpeg.ps1` directly instead of falling back to the npm packages, or have `MediaPreparationService`/Convert Media detect a missing encoder and surface a clear error instead of a raw ffmpeg failure.
+
+## Linux (flatpak)
+
+The Linux build doesn't use the `.exe` files above. `.github/workflows/linux-release.yml` runs `fetch-linux-binaries.sh`, which downloads the static GPL `ffmpeg-master-latest-linux64-gpl.tar.xz` from BtbN/FFmpeg-Builds (verified against that release's `checksums.sha256`) plus a pinned, SHA-256-verified `yt-dlp_linux`, and puts them in place as extensionless `ffmpeg`, `ffprobe` and `yt-dlp`. `src/main.ts` picks the `.exe` or extensionless name based on the platform. To build locally on Linux, run `bash fetch-linux-binaries.sh` after `npm install`, then `npx electron-builder --linux flatpak --x64` (needs `flatpak`, `flatpak-builder` and the flathub `org.freedesktop.Platform//24.08`, `org.freedesktop.Sdk//24.08` and `org.electronjs.Electron2.BaseApp//24.08` refs).

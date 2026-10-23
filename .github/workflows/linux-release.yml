@@ -1,0 +1,91 @@
+name: Linux Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-flatpak:
+    name: Build Linux x86_64 Flatpak
+    runs-on: ubuntu-24.04
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      # LFS is skipped on purpose: the only LFS files are the Windows .exe
+      # binaries, which the Linux package doesn't use.
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+
+      - name: Install flatpak tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder elfutils
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user --noninteractive flathub \
+            org.freedesktop.Platform//24.08 \
+            org.freedesktop.Sdk//24.08 \
+            org.electronjs.Electron2.BaseApp//24.08
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Fetch Linux GPL ffmpeg and yt-dlp binaries
+        run: bash ./fetch-linux-binaries.sh
+
+      - name: Compile TypeScript
+        run: npm run compile
+
+      - name: Validate JavaScript syntax
+        run: |
+          node --check out/main.js
+          node --check out/renderer.js
+          node --check out/menu-template.js
+          node --check out/subtitles.js
+
+      - name: Build flatpak
+        run: npx electron-builder --linux flatpak --x64 --publish never
+
+      - name: Verify bundled binaries
+        run: |
+          for bin in ffmpeg-binaries/ffmpeg ffmpeg-binaries/ffprobe ytdlp-binaries/yt-dlp; do
+            test -x "dist/linux-unpacked/resources/$bin" || { echo "missing or not executable: $bin" >&2; exit 1; }
+          done
+          ls -lh dist/*.flatpak
+
+      # electron-builder in the Windows workflow creates the (draft) GitHub
+      # release for the tag; wait for it, then attach the flatpak to it.
+      - name: Attach flatpak to release
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          for attempt in $(seq 1 60); do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release upload "$tag" dist/*.flatpak --repo "$GITHUB_REPOSITORY" --clobber
+              exit 0
+            fi
+            echo "Release $tag not created yet (attempt $attempt/60), waiting..."
+            sleep 30
+          done
+          echo "Release $tag never appeared; the flatpak is still available as a workflow artifact." >&2
+          exit 1
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ffinflow-linux-flatpak
+          path: dist/*.flatpak
+          if-no-files-found: warn
