@@ -1,9 +1,11 @@
 name: Linux Release
 
+# Runs automatically after a manual "Windows Release" run succeeds (that run
+# creates the v<version> release), or on its own via "Run workflow".
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_run:
+    workflows: ["Windows Release"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -12,8 +14,16 @@ permissions:
 jobs:
   build-flatpak:
     name: Build Linux x86_64 Flatpak
+    # Skip the extra Windows run that publishing the release (which creates
+    # the tag) triggers, and Windows runs that failed.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'workflow_dispatch')
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     # Flathub's CI image ships flatpak-builder with the freedesktop 24.08
     # Platform and SDK preinstalled, so the ~1 GB runtime download (which kept
     # stalling on plain Ubuntu runners) doesn't happen on every run.
@@ -26,6 +36,15 @@ jobs:
       # binaries, which the Linux package doesn't use.
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          # Build the same commit the Windows run released.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Read version
+        id: version
+        run: |
+          version="$(grep -m1 '"version"' package.json | cut -d'"' -f4)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node
         uses: actions/setup-node@v5
@@ -100,14 +119,14 @@ jobs:
           if-no-files-found: warn
 
   # Runs on a plain runner because the flatpak container has no gh CLI.
-  # electron-builder in the Windows workflow creates the (draft) GitHub
-  # release for the tag; wait for it, then attach the flatpak to it.
+  # Attaches the flatpak to the v<version> release the Windows run created;
+  # if there is none yet, creates the draft the same way electron-builder
+  # does (electron-builder reuses an existing draft for the same tag).
   attach-to-release:
     name: Attach Flatpak to Release
     needs: build-flatpak
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 15
 
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -120,15 +139,16 @@ jobs:
           path: dist
 
       - name: Attach flatpak to release
+        env:
+          VERSION: ${{ needs.build-flatpak.outputs.version }}
+          TARGET: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
-          tag="${GITHUB_REF_NAME}"
-          for attempt in $(seq 1 60); do
-            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release upload "$tag" dist/*.flatpak --repo "$GITHUB_REPOSITORY" --clobber
-              exit 0
-            fi
-            echo "Release $tag not created yet (attempt $attempt/60), waiting..."
-            sleep 30
-          done
-          echo "Release $tag never appeared; the flatpak is still available as a workflow artifact." >&2
-          exit 1
+          tag="v${VERSION}"
+          if ! gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$tag" --repo "$GITHUB_REPOSITORY" --draft \
+              --title "$VERSION" --target "$TARGET" --notes ""
+          fi
+          gh release upload "$tag" dist/*.flatpak --repo "$GITHUB_REPOSITORY" --clobber
+          # Windows .exe and Linux .flatpak are both attached now: make the
+          # release public.
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --draft=false --latest
