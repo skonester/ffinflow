@@ -58,8 +58,30 @@ jobs:
           node --check out/menu-template.js
           node --check out/subtitles.js
 
+      # rofiles-fuse needs FUSE, which isn't usable inside the container, so
+      # flatpak-builder has to run with --disable-rofiles-fuse (as Flathub's
+      # own CI does). electron-builder has no option to pass builder args, so
+      # a wrapper earlier on PATH adds it.
+      - name: Wrap flatpak-builder
+        run: |
+          real="$(command -v flatpak-builder)"
+          dir="${RUNNER_TEMP}/flatpak-builder-wrapper"
+          mkdir -p "$dir"
+          cat > "$dir/flatpak-builder" <<EOF
+          #!/bin/sh
+          case "\$1" in
+            --version) exec "$real" "\$@" ;;
+            *) exec "$real" --disable-rofiles-fuse "\$@" ;;
+          esac
+          EOF
+          chmod +x "$dir/flatpak-builder"
+          echo "$dir" >> "$GITHUB_PATH"
+
       - name: Build flatpak
         timeout-minutes: 30
+        env:
+          # Prints flatpak-builder's own output, which electron-builder hides.
+          DEBUG: "@malept/flatpak-bundler"
         run: npx electron-builder --linux flatpak --x64 --publish never
 
       - name: Verify bundled binaries
