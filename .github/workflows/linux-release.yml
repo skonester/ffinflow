@@ -14,9 +14,12 @@ jobs:
     name: Build Linux x86_64 Flatpak
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-
-    env:
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    # Flathub's CI image ships flatpak-builder with the freedesktop 24.08
+    # Platform and SDK preinstalled, so the ~1 GB runtime download (which kept
+    # stalling on plain Ubuntu runners) doesn't happen on every run.
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-24.08
+      options: --privileged
 
     steps:
       # LFS is skipped on purpose: the only LFS files are the Windows .exe
@@ -30,26 +33,14 @@ jobs:
           node-version: "24"
           cache: npm
 
-      # The runtime/SDK/BaseApp download from flathub is large and can be very
-      # slow from GitHub runners, so it is cached between runs.
-      - name: Cache flatpak runtimes
-        uses: actions/cache@v4
-        with:
-          path: ~/.local/share/flatpak
-          key: flatpak-user-24.08-electron2-v1
-
-      - name: Install flatpak tooling
-        timeout-minutes: 25
+      - name: Install Electron BaseApp
+        timeout-minutes: 15
         run: |
-          sudo apt-get update
-          sudo apt-get install -y flatpak flatpak-builder elfutils
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          # --no-related skips locales, GL drivers and codec extensions, which
-          # are only needed to run apps, not to build them.
-          flatpak install --user --noninteractive --no-related flathub \
-            org.freedesktop.Platform//24.08 \
-            org.freedesktop.Sdk//24.08 \
-            org.electronjs.Electron2.BaseApp//24.08
+          command -v xz >/dev/null || dnf install -y xz
+          flatpak --version
+          flatpak remote-add --system --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak list --system --runtime --columns=application,branch
+          flatpak install --system -y --no-related flathub org.electronjs.Electron2.BaseApp//24.08
 
       - name: Install dependencies
         run: npm ci
@@ -68,6 +59,7 @@ jobs:
           node --check out/subtitles.js
 
       - name: Build flatpak
+        timeout-minutes: 30
         run: npx electron-builder --linux flatpak --x64 --publish never
 
       - name: Verify bundled binaries
@@ -77,10 +69,35 @@ jobs:
           done
           ls -lh dist/*.flatpak
 
-      # electron-builder in the Windows workflow creates the (draft) GitHub
-      # release for the tag; wait for it, then attach the flatpak to it.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: ffinflow-linux-flatpak
+          path: dist/*.flatpak
+          if-no-files-found: warn
+
+  # Runs on a plain runner because the flatpak container has no gh CLI.
+  # electron-builder in the Windows workflow creates the (draft) GitHub
+  # release for the tag; wait for it, then attach the flatpak to it.
+  attach-to-release:
+    name: Attach Flatpak to Release
+    needs: build-flatpak
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      - name: Download flatpak
+        uses: actions/download-artifact@v5
+        with:
+          name: ffinflow-linux-flatpak
+          path: dist
+
       - name: Attach flatpak to release
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           tag="${GITHUB_REF_NAME}"
           for attempt in $(seq 1 60); do
@@ -93,11 +110,3 @@ jobs:
           done
           echo "Release $tag never appeared; the flatpak is still available as a workflow artifact." >&2
           exit 1
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v6
-        if: always()
-        with:
-          name: ffinflow-linux-flatpak
-          path: dist/*.flatpak
-          if-no-files-found: warn
