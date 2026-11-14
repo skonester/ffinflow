@@ -1,11 +1,11 @@
 ﻿:root {
-    --primary-color: #ff6600;
-    --primary-hover: #ff8533;
-    --bg-dark: #232323;
-    --bg-darker: #1a1a1a;
-    --text-color: #e0e0e0;
-    --slider-bg: #444;
-    --control-bg: rgba(28, 28, 28, 0.9);
+    --primary-color: #7aa2f7;
+    --primary-hover: #89ddff;
+    --bg-dark: linear-gradient(180deg, #1a1b26 0%, #16161e 100%);
+    --bg-darker: #13141c;
+    --text-color: #c0caf5;
+    --slider-bg: linear-gradient(90deg, #24283b 0%, #1f2335 100%);
+    --control-bg: rgba(26, 27, 38, 0.95);
 }
 
 * {
@@ -397,7 +397,6 @@ body {
     padding: 10px 0;
     justify-content: space-between;
     min-width: 460px;
-    flex-wrap: nowrap;
 }
 
 .playback-controls {

@@ -9,7 +9,6 @@ export type PreparationEvent = { type: "status"; message: string } | { type: "pr
 export interface PreparationOptions {
   ffmpegPath: string;
   ffprobePath: string;
-  cacheDirectory: string;
   onEvent?: (event: PreparationEvent, sourcePath: string) => void;
   timeoutMs?: number;
 }
@@ -83,6 +82,35 @@ export class MediaPreparationService {
     return parseProbe(await runProcess(this.options.ffprobePath, ["-v", "error", "-show_streams", "-show_format", "-of", "json", filePath], this.controller.signal, 60000));
   }
 
+  private async reserveOutput(filePath: string, sourceKey: string, plan: PreparationPlan): Promise<{ output: string; reused: boolean }> {
+    const directory = path.dirname(filePath);
+    const stem = path.basename(filePath, path.extname(filePath));
+    for (let number = 1; ; number++) {
+      const output = path.join(directory, `${stem}_FIXED${number === 1 ? "" : ` (${number})`}.mp4`);
+      try {
+        const cached = await fs.stat(output);
+        const manifest: unknown = JSON.parse(await fs.readFile(`${output}.ffinflow.json`, "utf8"));
+        if (cached.size > 0 && manifest && typeof manifest === "object" &&
+            "sourceKey" in manifest && manifest.sourceKey === sourceKey &&
+            "size" in manifest && manifest.size === cached.size &&
+            "mtimeMs" in manifest && manifest.mtimeMs === cached.mtimeMs &&
+            outputMatchesPlan(await this.probe(output), plan)) return { output, reused: true };
+      } catch { /* Existing, modified, or unrelated files are preserved. */ }
+      try {
+        try { await fs.lstat(`${output}.ffinflow.json`); continue; }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        // Reserve the final name exclusively so concurrent jobs cannot overwrite each other.
+        const reservation = await fs.open(output, "wx");
+        await reservation.close();
+        return { output, reused: false };
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "EEXIST") continue;
+        throw new Error(`Cannot save the converted media beside the original in "${directory}". Make sure that folder is writable. (${code ?? "unknown error"})`);
+      }
+    }
+  }
+
   private async prepareFile(filePath: string): Promise<string> {
     this.options.onEvent?.({ type: "status", message: "Probing media file..." }, filePath);
     const source = await fs.stat(filePath);
@@ -91,24 +119,20 @@ export class MediaPreparationService {
     const plan = createPreparationPlan(filePath, probe);
     if (plan.kind === "direct") return pathToFileURL(filePath).href;
 
-    // Versioned cache identity invalidates outputs when the source or policy changes.
+    // Validate reusable outputs against their source, policy, and generated file metadata.
     const key = createHash("sha256").update(JSON.stringify([1, filePath, source.size, source.mtimeMs, this.options.ffmpegPath, plan])).digest("hex");
-    await fs.mkdir(this.options.cacheDirectory, { recursive: true });
-    const output = path.join(this.options.cacheDirectory, `${key}.mp4`);
-    const manifestPath = `${output}.json`;
-    try {
-      const cached = await fs.stat(output);
-      const manifest: unknown = JSON.parse(await fs.readFile(manifestPath, "utf8"));
-      if (cached.size > 0 && manifest && typeof manifest === "object" && "size" in manifest && manifest.size === cached.size && "mtimeMs" in manifest && manifest.mtimeMs === cached.mtimeMs && outputMatchesPlan(await this.probe(output), plan)) return pathToFileURL(output).href;
-    } catch { /* Missing, empty, changed, or unreadable cache: regenerate. */ }
+    const { output, reused } = await this.reserveOutput(filePath, key, plan);
+    if (reused) return pathToFileURL(output).href;
 
-    const messages = { audio: "Optimizing audio format for player...", remux: "Remuxing media for player...", convert: "Converting media format..." };
-    this.options.onEvent?.({ type: "status", message: messages[plan.kind] }, filePath);
-    const temp = `${output}.${randomUUID()}.tmp`;
+    const temp = path.join(path.dirname(filePath), `.ffinflow-${randomUUID()}.tmp`);
+    const manifestPath = `${output}.ffinflow.json`;
     const manifestTemp = `${temp}.json`;
+    let published = false;
     let progressText = "";
     const duration = Number(probe.format?.duration);
     try {
+      const messages = { audio: "Optimizing audio format for player...", remux: "Remuxing media for player...", convert: "Converting media format..." };
+      this.options.onEvent?.({ type: "status", message: messages[plan.kind] }, filePath);
       await runProcess(this.options.ffmpegPath, buildPreparationArgs(filePath, temp, plan), this.controller.signal, this.options.timeoutMs ?? 6 * 60 * 60 * 1000, chunk => {
         progressText += chunk;
         const lines = progressText.split(/\r?\n/);
@@ -124,15 +148,20 @@ export class MediaPreparationService {
       if (!generated.size || !outputMatchesPlan(await this.probe(temp), plan)) throw new Error("Prepared media did not retain the expected streams, codecs, dimensions, or channels.");
       const latest = await fs.stat(filePath);
       if (latest.size !== source.size || latest.mtimeMs !== source.mtimeMs) throw new Error("The source file changed during preparation. Please reopen it.");
+      if ((await fs.stat(output)).size !== 0) throw new Error("The output file changed during preparation. Please reopen the original file.");
       await fs.rename(temp, output);
-      const published = await fs.stat(output);
-      await fs.writeFile(manifestTemp, JSON.stringify({ size: published.size, mtimeMs: published.mtimeMs }));
+      published = true;
+      const generatedOutput = await fs.stat(output);
+      await fs.writeFile(manifestTemp, JSON.stringify({ sourceKey: key, size: generatedOutput.size, mtimeMs: generatedOutput.mtimeMs }));
       await fs.rename(manifestTemp, manifestPath);
       this.options.onEvent?.({ type: "progress", percent: 100 }, filePath);
       return pathToFileURL(output).href;
     } finally {
       await fs.unlink(temp).catch(() => {});
       await fs.unlink(manifestTemp).catch(() => {});
+      if (!published) {
+        try { if ((await fs.stat(output)).size === 0) await fs.unlink(output); } catch { /* Preserve nonempty files and ignore an already removed reservation. */ }
+      }
     }
   }
 }

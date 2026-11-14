@@ -22,10 +22,11 @@
      ```powershell
      ffprobe -v error -show_entries stream=codec_name,codec_type -of default=noprint_wrappers=1 input.mp4
      ```
-  3. Check cache directory permissions:
+  3. Check the original media directory's permissions and prepared files:
      ```powershell
-     $cacheDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "ffinflow-media-cache")
-     Test-Path $cacheDir
+     $mediaDirectory = "C:\Videos"
+     Get-Acl -LiteralPath $mediaDirectory | Format-List
+     Get-ChildItem -LiteralPath $mediaDirectory -Filter "*_FIXED*.mp4"
      ```
 
 #### 2. File Association Issues
@@ -54,11 +55,7 @@
      yt-dlp --version
      yt-dlp --simulate --print "%(title)s|%(duration)s|%(filesize)s" "https://example.com/video"
      ```
-  3. Verify cache directory is writable:
-     ```powershell
-     $cacheDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "ffinflow-media-cache")
-     New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
-     ```
+  3. Verify the output directory configured in the downloader is writable.
 
 #### 4. Update Check Issues
 - **Symptoms**: Update toast not appearing, unable to check for updates
@@ -81,7 +78,7 @@
      console.log('MAIN:', 'Starting ffinflow');
      console.log('MAIN:', `ffmpegPath: ${FFMPEG_PATH}`);
      console.log('MAIN:', `ffprobePath: ${FFPROBE_PATH}`);
-     console.log('MAIN:', `cacheDirectory: ${cacheDirectory}`);
+     console.log('MAIN:', 'Prepared media is saved beside its source file');
      ```
   2. Check Electron crash dumps:
      ```powershell
@@ -102,9 +99,10 @@ $ffprobePath = $env:FFINFLOW_FFPROBE -or "ffmpeg-binaries\ffprobe.exe"
 Write-Host "FFMPEG:" (if (Test-Path $ffmpegPath) { "OK" } else { "MISSING" })
 Write-Host "FFPROBE:" (if (Test-Path $ffprobePath) { "OK" } else { "MISSING" })
 
-# Check cache directory
-$cacheDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "ffinflow-media-cache")
-Write-Host "CACHE DIR:" (if (Test-Path $cacheDir) { "OK" } else { "MISSING" })
+# Check original media directory (prepared files are saved here)
+$mediaDirectory = "C:\Videos"
+Test-Path -LiteralPath $mediaDirectory
+Get-ChildItem -LiteralPath $mediaDirectory -Filter "*_FIXED*.mp4"
 
 # Check yt-dlp
 $ytDlpPath = [System.IO.Path]::Combine([System.IO.Path]::GetExecutablePath(), "..\yt-dlp\yt-dlp.exe")
@@ -129,7 +127,8 @@ ffprobe -v error -show_entries stream=codec_name,codec_type,width,height,duratio
 - **Main process logs**: Console output from `src/main.ts`
 - **Renderer process logs**: Console output from `src/renderer.ts`
 - **Electron crash dumps**: `$env:LOCALAPPDATA\CrashDumps`
-- **Media cache**: `%TEMP%\ffinflow-media-cache`
+- **Prepared media**: `<original directory>\<name>_FIXED.mp4` (numbered if occupied)
+- **Preparation metadata**: `<prepared file>.ffinflow.json`
 
 ### Reset Steps
 
@@ -168,9 +167,7 @@ Remove-Item -Path "HKCU:\Software\Classes\ffinflow.Audio" -Recurse -ErrorAction 
 Remove-Item -Path "HKCU:\Software\Classes\ffinflow" -Recurse -ErrorAction SilentlyContinue
 Remove-Item -Path "HKCU:\Software\RegisteredApplications\ffinflow" -ErrorAction SilentlyContinue
 
-# Clear cache
-$cacheDir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "ffinflow-media-cache")
-Remove-Item -Path $cacheDir -Recurse -Force -ErrorAction SilentlyContinue
+# Prepared videos remain beside their originals when settings are reset.
 ```
 
 ### Testing Media Playback

@@ -49,7 +49,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: "24"
+          node-version-file: ".nvmrc"
           cache: npm
 
       - name: Install Electron BaseApp
@@ -133,7 +133,7 @@ jobs:
 
     steps:
       - name: Download flatpak
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: ffinflow-linux-flatpak
           path: dist

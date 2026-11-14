@@ -41,7 +41,7 @@ User opens file → IPC: prepare-media-for-playback
 → MediaPreparationService.probe() runs ffprobe
 → createPreparationPlan() determines: direct/remux/audio/convert
 → FFmpeg executes transformation to MP4 (if needed)
-→ Renderer receives cached URL for playback
+→ Renderer receives the prepared file's URL for playback
 ```
 
 ---
@@ -53,7 +53,8 @@ User opens file → IPC: prepare-media-for-playback
 Handles probing and transcoding of media files before playback.
 
 - Uses FFmpeg/FFprobe binaries bundled with the app
-- Caches prepared files in temp directory with SHA256-based versioning
+- Saves prepared files beside the original as `<name>_FIXED.mp4`, adding a number when a name is occupied
+- Reuses validated conversions using a `.ffinflow.json` sidecar and SHA256-based source identity
 - Supports abort/cancel during preparation
 - Emits progress events to renderer (`transcode-status`, `transcode-progress`)
 

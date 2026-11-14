@@ -105,16 +105,8 @@ function initDownloaderUI() {
     let sitesLoaded = false;
     let allSites = [];
 
-    // --- Floating entry point (the "section at the top" for this feature) ---
-    const launcher = styled('button', {
-        position: 'fixed', top: '10px', right: '20px', zIndex: '950',
-        display: 'flex', alignItems: 'center', gap: '6px',
-        padding: '6px 12px', borderRadius: '999px', fontSize: '12px', fontFamily: 'system-ui, -apple-system, sans-serif',
-        background: 'var(--control-bg, rgba(28, 28, 28, 0.9))', color: 'var(--text-color, #e0e0e0)',
-        border: '1px solid rgba(255, 255, 255, 0.15)', cursor: 'pointer', boxShadow: '0 2px 10px rgba(0, 0, 0, 0.35)'
-    });
-    launcher.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg><span>Download</span>';
-    document.body.appendChild(launcher);
+    // The launcher belongs to the player controls and shares their auto-hide behavior.
+    const launcher = document.getElementById('download-media');
 
     // --- Modal shell ---
     const overlay = styled('div', {
@@ -183,7 +175,7 @@ function initDownloaderUI() {
     function closeModal() { overlay.style.display = 'none'; }
 
     closeBtn.addEventListener('click', closeModal);
-    launcher.addEventListener('click', openModal);
+    launcher?.addEventListener('click', openModal);
     overlay.addEventListener('click', (event) => { if (event.target === overlay) closeModal(); });
     document.addEventListener('keydown', (event) => {
         if (overlay.style.display === 'flex' && event.key === 'Escape') closeModal();

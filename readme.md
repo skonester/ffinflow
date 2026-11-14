@@ -66,14 +66,20 @@ Grab the latest installer from [Releases](https://github.com/skonester/ffinflow/
 
 ### 🔧 Build from source
 
+Use Node.js **26.13.1 LTS** for development and builds; the version is pinned in `.nvmrc` and used by both release workflows. With nvm, run `nvm install` and `nvm use` after cloning (on nvm-windows, pass `26.13.1` to both commands).
+
 ```bash
 git clone https://github.com/skonester/ffinflow.git
 cd ffinflow
-npm install
+npm ci
 npm run build
 ```
 
+The app uses **Electron 45.3.2**, which bundles **Node.js 24.22.2**. Electron supplies the shipped runtime independently of the development Node.js installation, so `@types/node` follows Node 24. The install step explicitly downloads Electron's binary, as Electron 42 and later no longer do this in their own postinstall script.
+
 The installer is written to `dist/`.
+
+Files prepared for playback are saved in the original file's directory as `<name>_FIXED.mp4`. If that name is occupied, a number is added. Verified conversions are reused when reopening the original. The original directory must be writable when conversion is needed.
 
 ### 📄 License
 

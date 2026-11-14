@@ -44,12 +44,11 @@ async function openFolder() {
         }
         
         // Add files with basic info first
+        const firstNewIndex = playlist.length;
         const promises = mediaFiles.map(addToPlaylist);
         
-        if (currentIndex === -1) {
-            currentIndex = 0;
-            playFile(mediaFiles[0]);
-        }
+        currentIndex = firstNewIndex;
+        playFile(mediaFiles[0]);
         
         // Save playlist after basic info is added
         store.set('playlist', playlist);
@@ -68,12 +67,11 @@ async function openFiles() {
     if (!filePaths || filePaths.length === 0) return;
 
     // Add files with basic info first
+    const firstNewIndex = playlist.length;
     const promises = filePaths.map(addToPlaylist);
 
-    if (currentIndex === -1) {
-        currentIndex = 0;
-        playFile(filePaths[0]);
-    }
+    currentIndex = firstNewIndex;
+    playFile(filePaths[0]);
 
     // Save playlist after basic info is added
     store.set('playlist', playlist);

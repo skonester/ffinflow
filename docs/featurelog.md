@@ -6,4 +6,4 @@ Implemented the improvements in FFinflow, with E-AC3 → FLAC conversion preserv
 - Fixed original-file lookup for subtitles and resume positions.
 - Updated the [README](C:/Users/admin/Documents/GitHub/ffinflow/readme.md).
 Validation: compilation, strict pipeline checks, and all 16 tests passed. Real E-AC3 fixtures produced non-silent decoded audio. A generated 7680×4320 fixture retained its dimensions and identical compressed-video hash.
-One behavior change: prepared files now use the application’s temporary cache instead of creating _FIXED.mp4 beside the source.
+Prepared files are saved beside the original as `<name>_FIXED.mp4`. Existing files are preserved by adding a number to the name when necessary. A `.ffinflow.json` sidecar validates previously prepared files for reuse. Partial files are written in the same directory and removed if preparation fails.

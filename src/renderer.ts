@@ -1,4 +1,4 @@
-const { ipcRenderer, shell } = require("electron");
+const { ipcRenderer, shell, webUtils } = require("electron");
 const { parseFile } = require("music-metadata");
 const path = require("path");
 const { fileURLToPath, pathToFileURL } = require("url");
@@ -1633,16 +1633,15 @@ document.addEventListener("drop", async (e) => {
   e.preventDefault();
   e.stopPropagation();
 
-  const files = Array.from(e.dataTransfer.files).filter((file) => {
-    const ext = path.extname((file as any).path).toLowerCase();
-    return supportedFormats.includes(ext);
-  });
+  const filePaths = Array.from(e.dataTransfer?.files ?? [])
+    .map((file) => webUtils.getPathForFile(file))
+    .filter((filePath) => filePath && supportedFormats.includes(path.extname(filePath).toLowerCase()));
 
-  const promises = files.map((file) => addToPlaylist((file as any).path));
+  const promises = filePaths.map((filePath) => addToPlaylist(filePath));
 
-  if (currentIndex === -1 && files.length > 0) {
+  if (currentIndex === -1 && filePaths.length > 0) {
     currentIndex = 0;
-    playFile((files[0] as any).path);
+    playFile(filePaths[0]);
   }
 
   // Save playlist after basic info is added

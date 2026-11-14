@@ -1,6 +1,7 @@
 ﻿// themes.js
 const Store = require('electron-store');
 const store = new Store();
+const DEFAULT_THEME = 'tokyoNight';
 
 const themes = {
     auroraBreeze: {
@@ -274,19 +275,19 @@ const themes = {
         effect: 'none'
     },
     default: {
-        name: 'Aurora Breeze',
-        primaryColor: '#64FFDA',
-        primaryHover: 'linear-gradient(135deg, #64FFDA 0%, #48A999 100%)',
-        bgDark: 'linear-gradient(180deg, #0A192F 0%, #040C15 100%)',
-        bgDarker: '#020610',
-        textColor: '#C9FFF3',
-        sliderBg: 'linear-gradient(90deg, #153D57 0%, #0E2837 100%)',
-        controlBg: 'rgba(10, 25, 47, 0.95)',
-        accentColor: '#98FFEA',
-        shadowColor: 'rgba(100, 255, 218, 0.25)',
-        borderGlow: '0 0 15px rgba(152, 255, 234, 0.35)',
-        activeGlow: '0 0 30px rgba(152, 255, 234, 0.55)',
-        effect: 'linear-gradient(180deg, rgba(100, 255, 218, 0.08) 0%, transparent 100%)'
+        name: 'Tokyo Night',
+        primaryColor: '#7aa2f7',
+        primaryHover: 'linear-gradient(135deg, #89ddff 0%, #7aa2f7 100%)',
+        bgDark: 'linear-gradient(180deg, #1a1b26 0%, #16161e 100%)',
+        bgDarker: '#13141c',
+        textColor: '#c0caf5',
+        sliderBg: 'linear-gradient(90deg, #24283b 0%, #1f2335 100%)',
+        controlBg: 'rgba(26, 27, 38, 0.95)',
+        accentColor: '#bb9af7',
+        shadowColor: 'rgba(122, 162, 247, 0.25)',
+        borderGlow: '0 0 15px rgba(122, 162, 247, 0.35)',
+        activeGlow: '0 0 30px rgba(122, 162, 247, 0.6)',
+        effect: 'radial-gradient(circle at 50% 0%, rgba(122, 162, 247, 0.12), transparent 70%)'
     }
 };
 
@@ -417,13 +418,13 @@ const injectAdvancedCSS = (theme) => {
 
 const applyTheme = (themeName) => {
     if (!themeName || themeName === 'revert' || themeName === 'nineSeries' || themeName === 'wmp10' || themeName === 'default') {
-        themeName = 'auroraBreeze';
+        themeName = DEFAULT_THEME;
     }
     let theme = themes[themeName];
     if (!theme) {
-        console.warn(`Theme "${themeName}" not found. Falling back to auroraBreeze.`);
-        theme = themes.auroraBreeze || themes.default;
-        themeName = 'auroraBreeze';
+        console.warn(`Theme "${themeName}" not found. Falling back to Tokyo Night.`);
+        theme = themes[DEFAULT_THEME];
+        themeName = DEFAULT_THEME;
     }
 
     if (typeof document !== 'undefined') {
@@ -445,10 +446,10 @@ const applyTheme = (themeName) => {
 const getCurrentTheme = () => {
     const saved = store.get('selected-theme');
     if (!saved || saved === 'default' || saved === 'revert' || saved === 'nineSeries' || saved === 'wmp10') {
-        return 'auroraBreeze';
+        return DEFAULT_THEME;
     }
     if (!themes[saved]) {
-        return 'auroraBreeze';
+        return DEFAULT_THEME;
     }
     return saved;
 };

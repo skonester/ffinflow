@@ -2,6 +2,7 @@ import { MediaPreparationService } from "./media/preparation-service";
 import { DownloaderStore } from "./downloader/store";
 import { DownloadEngine } from "./downloader/engine";
 import { registerDownloaderIpc } from "./downloader/ipc";
+import { registerWindowIpc } from "./window-ipc";
 const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const fs = require("fs").promises;
 const path = require("path");
@@ -84,6 +85,7 @@ function initDownloader(window): void {
 }
 
 let mainWindow;
+registerWindowIpc(ipcMain, () => mainWindow);
 let fileToOpen = null;
 function toFfprobePath(filePath) {
   if (!filePath) return filePath;
@@ -164,7 +166,6 @@ async function interceptAndFixAudio(input: unknown): Promise<string> {
   preparationService ??= new MediaPreparationService({
     ffmpegPath: FFMPEG_PATH,
     ffprobePath: FFPROBE_PATH,
-    cacheDirectory: path.join(app.getPath("temp"), "ffinflow-media-cache"),
     onEvent: (event, sourcePath) => {
       if (!mainWindow || mainWindow.isDestroyed() || activePreparationPath !== sourcePath) return;
       if (event.type === "status") mainWindow.webContents.send("transcode-status", event.message);
@@ -262,6 +263,11 @@ function createWindow() {
     },
     autoHideMenuBar: false,
     frame: true,
+  });
+
+  const createdWindow = mainWindow;
+  createdWindow.on("closed", () => {
+    if (mainWindow === createdWindow) mainWindow = null;
   });
 
   mainWindow.webContents.on("dom-ready", () => {
@@ -435,10 +441,6 @@ autoUpdater.on("error", (err) => {
   if (mainWindow) mainWindow.webContents.send("update-error", err.message);
 });
 
-ipcMain.on("enforce-min-size", (_, dimensions) => {
-  if (mainWindow) mainWindow.setMinimumSize(dimensions.width, dimensions.height);
-});
-
 // ==============================================================================
 // AGENT: FILE DIALOG INTERCEPTOR
 // ==============================================================================
@@ -506,13 +508,6 @@ ipcMain.handle("probe-media-info", async (_, filePath) => {
       resolve(formatProbeInfo(probePath, metadata));
     });
   });
-});
-
-ipcMain.on("toggle-menu-bar", (_, show) => {
-  if (mainWindow) {
-    mainWindow.setMenuBarVisibility(show);
-    mainWindow.setAutoHideMenuBar(!show);
-  }
 });
 
 // ==============================================================================

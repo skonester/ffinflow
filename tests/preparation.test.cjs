@@ -75,20 +75,21 @@ const exec = (binary, args) => runProcess(binary, args, new AbortController().si
 const probe = async file => JSON.parse(await exec(ffprobePath, ['-v', 'error', '-show_streams', '-of', 'json', file]));
 const videoHash = file => exec(ffmpegPath, ['-v', 'error', '-i', file, '-map', '0:v:0', '-c:v', 'copy', '-f', 'hash', '-hash', 'sha256', '-']);
 
-test('real E-AC3 conversion, channel/video preservation, caching, deduplication and recovery', async t => {
+test('real E-AC3 conversion beside the original, channel/video preservation, reuse and recovery', async t => {
   await fs.access(ffmpegPath);
   await fs.access(ffprobePath);
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'ffinflow-test-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
-  const cache = path.join(dir, 'cache');
   let events = [];
-  const service = new MediaPreparationService({ ffmpegPath, ffprobePath, cacheDirectory: cache, onEvent: event => events.push(event) });
+  const service = new MediaPreparationService({ ffmpegPath, ffprobePath, onEvent: event => events.push(event) });
   t.after(() => service.dispose());
   const source = path.join(dir, 'EAC3 # 100% stereo.mkv');
   await exec(ffmpegPath, ['-v', 'error', '-f', 'lavfi', '-i', 'color=size=96x64:rate=5', '-f', 'lavfi', '-i', 'sine=frequency=440:sample_rate=48000', '-t', '0.4', '-c:v', 'libx264', '-threads', '2', '-c:a', 'eac3', '-ac', '2', source]);
   const pending = service.prepare(source);
   assert.equal(service.prepare(source), pending);
   const output = fileURLToPath(await pending);
+  assert.equal(output, path.join(dir, 'EAC3 # 100% stereo_FIXED.mp4'));
+  assert.equal(path.dirname(output), path.dirname(source));
   const result = await probe(output);
   assert.equal(result.streams.find(s => s.codec_type === 'audio').codec_name, 'flac');
   assert.equal(result.streams.find(s => s.codec_type === 'audio').channels, 2);
@@ -101,15 +102,41 @@ test('real E-AC3 conversion, channel/video preservation, caching, deduplication 
   assert.equal((await fs.stat(output)).mtimeMs, firstStat.mtimeMs);
   assert.ok(!events.some(e => e.type === 'status' && e.message.includes('Optimizing')));
   await fs.writeFile(output, '');
-  await service.prepare(source);
-  assert.ok((await fs.stat(output)).size > 0);
-  await fs.writeFile(output, 'corrupt nonempty cache');
-  await service.prepare(source);
-  assert.equal(await videoHash(output), await videoHash(source));
+  const recovered = fileURLToPath(await service.prepare(source));
+  assert.notEqual(recovered, output);
+  assert.equal((await fs.stat(output)).size, 0);
+  assert.ok((await fs.stat(recovered)).size > 0);
+  await fs.writeFile(recovered, 'user-modified output');
+  const repaired = fileURLToPath(await service.prepare(source));
+  assert.notEqual(repaired, recovered);
+  assert.equal(await fs.readFile(recovered, 'utf8'), 'user-modified output');
+  assert.equal(await videoHash(repaired), await videoHash(source));
   const original = await fs.stat(source);
   await fs.utimes(source, original.atime, new Date(original.mtimeMs + 10000));
-  assert.notEqual(fileURLToPath(await service.prepare(source)), output);
-  assert.ok((await fs.readdir(cache)).every(file => !file.includes('.tmp')));
+  assert.notEqual(fileURLToPath(await service.prepare(source)), repaired);
+  assert.ok((await fs.readdir(dir)).every(file => !file.includes('.tmp')));
+
+  // An existing user file with the expected output name is never replaced.
+  const collisionSource = path.join(dir, 'collision.mkv');
+  await fs.copyFile(source, collisionSource);
+  const existingOutput = path.join(dir, 'collision_FIXED.mp4');
+  await fs.writeFile(existingOutput, 'existing user video');
+  const collisionOutput = fileURLToPath(await service.prepare(collisionSource));
+  assert.equal(collisionOutput, path.join(dir, 'collision_FIXED (2).mp4'));
+  assert.equal(await fs.readFile(existingOutput, 'utf8'), 'existing user video');
+
+  const orphanSource = path.join(dir, 'orphan.mkv');
+  await fs.copyFile(source, orphanSource);
+  const existingManifest = path.join(dir, 'orphan_FIXED.mp4.ffinflow.json');
+  await fs.writeFile(existingManifest, 'existing sidecar');
+  assert.equal(fileURLToPath(await service.prepare(orphanSource)), path.join(dir, 'orphan_FIXED (2).mp4'));
+  assert.equal(await fs.readFile(existingManifest, 'utf8'), 'existing sidecar');
+
+  const mp4Source = path.join(dir, 'EAC3 original.mp4');
+  await exec(ffmpegPath, ['-v', 'error', '-i', source, '-map', '0:v', '-map', '0:a', '-c', 'copy', mp4Source]);
+  const originalMp4 = await fs.readFile(mp4Source);
+  assert.equal(fileURLToPath(await service.prepare(mp4Source)), path.join(dir, 'EAC3 original_FIXED.mp4'));
+  assert.deepEqual(await fs.readFile(mp4Source), originalMp4);
 
   for (const [name, videoCodec, audioCodec, layout, channels] of [
     ['hevc-surround', 'libx265', 'eac3', '5.1', 6],
@@ -118,6 +145,7 @@ test('real E-AC3 conversion, channel/video preservation, caching, deduplication 
     const input = path.join(dir, `${name}.mkv`);
     await exec(ffmpegPath, ['-v', 'error', '-f', 'lavfi', '-i', 'color=size=96x64:rate=5', '-f', 'lavfi', '-i', `anullsrc=r=48000:cl=${layout}`, '-t', '0.4', '-c:v', videoCodec, '-threads', '2', ...(videoCodec === 'libx265' ? ['-x265-params', 'pools=1:frame-threads=1:log-level=error'] : []), '-c:a', audioCodec, input]);
     const prepared = fileURLToPath(await service.prepare(input));
+    assert.equal(path.dirname(prepared), path.dirname(input));
     const info = await probe(prepared);
     assert.equal(info.streams.find(s => s.codec_type === 'audio').channels, channels);
     assert.equal(info.streams.find(s => s.codec_type === 'audio').codec_name, videoCodec === 'mpeg4' ? 'aac' : 'flac');
@@ -136,9 +164,17 @@ test('real E-AC3 conversion, channel/video preservation, caching, deduplication 
   const empty = path.join(dir, 'empty.mp4');
   await fs.writeFile(empty, '');
   await assert.rejects(service.prepare(empty), /empty/);
-  const failing = new MediaPreparationService({ ffmpegPath: 'missing-encoder', ffprobePath, cacheDirectory: path.join(dir, 'failure') });
+  const filesBeforeFailure = await fs.readdir(dir);
+  const failing = new MediaPreparationService({ ffmpegPath: 'missing-encoder', ffprobePath });
   await assert.rejects(failing.prepare(source), /ENOENT/);
-  assert.ok((await fs.readdir(path.join(dir, 'failure'))).every(file => !file.includes('.tmp')));
+  assert.deepEqual(await fs.readdir(dir), filesBeforeFailure);
+
+  const readOnlySource = path.join(dir, 'read-only.mkv');
+  await fs.copyFile(source, readOnlySource);
+  const open = t.mock.method(fs, 'open', async () => { throw Object.assign(new Error('read-only filesystem'), { code: 'EROFS' }); });
+  await assert.rejects(service.prepare(readOnlySource), /Cannot save the converted media beside the original.*folder is writable/);
+  open.mock.restore();
+  assert.ok((await fs.readdir(dir)).every(file => !file.includes('.tmp')));
 });
 
 test('8K H264/E-AC3 fixture retains compressed video bytes and 7680x4320 dimensions', { skip: !process.env.FFINFLOW_TEST_8K }, async t => {
@@ -146,7 +182,7 @@ test('8K H264/E-AC3 fixture retains compressed video bytes and 7680x4320 dimensi
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   const source = path.join(dir, '8k.mkv');
   await exec(ffmpegPath, ['-v', 'error', '-f', 'lavfi', '-i', 'color=size=7680x4320:rate=1', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo', '-t', '0.2', '-c:v', 'libx264', '-preset', 'ultrafast', '-threads', '2', '-c:a', 'eac3', source]);
-  const service = new MediaPreparationService({ ffmpegPath, ffprobePath, cacheDirectory: path.join(dir, 'cache') });
+  const service = new MediaPreparationService({ ffmpegPath, ffprobePath });
   t.after(() => service.dispose());
   const output = fileURLToPath(await service.prepare(source));
   const info = await probe(output);
